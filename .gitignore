@@ -37,3 +37,19 @@ desktop.ini
 # Error logs
 error_log
 php_errors.log
+
+# Wasmer specific
+cache/
+setup-wasmer.php
+deploy-db.php
+
+# Environment files
+.env
+.env.local
+.env.production
+
+# Uploaded files
+assets/uploads/profiles/*
+assets/uploads/temp/*
+!assets/uploads/profiles/.gitkeep
+!assets/uploads/temp/.gitkeep

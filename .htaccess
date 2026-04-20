@@ -1,0 +1,26 @@
+# .htaccess
+RewriteEngine On
+
+# Redirect to public directory if needed
+RewriteBase /
+
+# Handle front controller
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteRule ^ index.php [L]
+
+# Security headers
+Header set X-Content-Type-Options "nosniff"
+Header set X-Frame-Options "DENY"
+Header set X-XSS-Protection "1; mode=block"
+
+# Protect sensitive files
+<FilesMatch "^\.">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+<FilesMatch "(config|database)\.php$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>

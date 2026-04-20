@@ -1,4 +1,5 @@
 <?php
+
 /**
  * GoRwanda+ Database Configuration
  * File: includes/db.php
@@ -13,13 +14,15 @@ if ($is_production) {
     define('DB_HOST', getenv('MYSQL_HOST') ?: 'mysql.wasmer.app');
     define('DB_USER', getenv('MYSQL_USER') ?: 'root');
     define('DB_PASS', getenv('MYSQL_PASSWORD') ?: '');
-    define('DB_NAME', getenv('MYSQL_DATABASE') ?: 'gorwanda_plus');
+    define('DB_NAME', getenv('MYSQL_DATABASE') ?: '
+dbMEGAFZLsRSL8jQRJBqt6xj');
 } else {
     // Local Development (WAMP)
     define('DB_HOST', 'localhost');
     define('DB_USER', 'root');          // Default WAMP user
     define('DB_PASS', '');              // Default WAMP password (empty)
-    define('DB_NAME', 'gorwanda_plus');
+    define('DB_NAME', '
+dbMEGAFZLsRSL8jQRJBqt6xj');
 }
 
 define('DB_CHARSET', 'utf8mb4');
@@ -47,18 +50,21 @@ try {
 }
 
 // Helper function to get PDO instance
-function getDB() {
+function getDB()
+{
     global $pdo;
     return $pdo;
 }
 
 // Helper function to check if running on Wasmer
-function isWasmer() {
+function isWasmer()
+{
     return getenv('WASMER_ENV') === 'production';
 }
 
 // Helper function to get base URL
-function baseUrl($path = '') {
+function baseUrl($path = '')
+{
     if (isWasmer()) {
         $protocol = isset($_SERVER['HTTPS']) ? 'https://' : 'http://';
         $host = $_SERVER['HTTP_HOST'] ?? 'gorwanda-plus.wasmer.app';
@@ -75,4 +81,3 @@ if (session_status() === PHP_SESSION_NONE) {
 
 // Timezone
 date_default_timezone_set('Africa/Kigali');
-?>

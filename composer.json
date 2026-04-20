@@ -1,0 +1,15 @@
+{
+    "name": "gorwanda/plus",
+    "description": "Tourism booking platform for Rwanda",
+    "type": "project",
+    "require": {
+        "php": ">=8.0",
+        "ext-pdo": "*",
+        "ext-mysqli": "*",
+        "ext-json": "*",
+        "ext-session": "*"
+    },
+    "config": {
+        "optimize-autoloader": true
+    }
+}

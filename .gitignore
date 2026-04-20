@@ -1,0 +1,39 @@
+# PHP
+/vendor/
+composer.phar
+composer.lock
+.env
+.env.*
+.phpunit.result.cache
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.sublime-*
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# WAMP specific
+/logs/
+/tmp/
+
+# Uploads (but keep folder structure)
+/assets/uploads/profiles/*
+/assets/uploads/temp/*
+!/assets/uploads/profiles/.gitkeep
+!/assets/uploads/temp/.gitkeep
+
+# Database
+*.sql
+*.sql.gz
+
+# Error logs
+error_log
+php_errors.log

@@ -3,26 +3,24 @@
 /**
  * GoRwanda+ Database Configuration
  * File: includes/db.php
- * Supports both Local (WAMP) and Wasmer Production environments
+ * Auto-detects environment (Local vs Wasmer)
  */
 
-// Detect environment
-$is_production = getenv('WASMER_ENV') === 'production';
+// Detect if running on Wasmer
+$is_wasmer = getenv('WASMER_ENV') === 'production';
 
-if ($is_production) {
+if ($is_wasmer) {
     // Wasmer Production Environment
     define('DB_HOST', getenv('MYSQL_HOST') ?: 'mysql.wasmer.app');
     define('DB_USER', getenv('MYSQL_USER') ?: 'root');
     define('DB_PASS', getenv('MYSQL_PASSWORD') ?: '');
-    define('DB_NAME', getenv('MYSQL_DATABASE') ?: '
-dbMEGAFZLsRSL8jQRJBqt6xj');
+    define('DB_NAME', getenv('MYSQL_DATABASE') ?: 'gorwanda_plus');
 } else {
     // Local Development (WAMP)
     define('DB_HOST', 'localhost');
-    define('DB_USER', 'root');          // Default WAMP user
-    define('DB_PASS', '');              // Default WAMP password (empty)
-    define('DB_NAME', '
-dbMEGAFZLsRSL8jQRJBqt6xj');
+    define('DB_USER', 'root');
+    define('DB_PASS', '');
+    define('DB_NAME', 'gorwanda_plus');
 }
 
 define('DB_CHARSET', 'utf8mb4');
@@ -40,8 +38,7 @@ try {
         ]
     );
 } catch (PDOException $e) {
-    // Log error but don't expose details in production
-    if ($is_production) {
+    if ($is_wasmer) {
         error_log("Database connection failed: " . $e->getMessage());
         die("Database connection failed. Please try again later.");
     } else {
@@ -68,7 +65,7 @@ function baseUrl($path = '')
     if (isWasmer()) {
         $protocol = isset($_SERVER['HTTPS']) ? 'https://' : 'http://';
         $host = $_SERVER['HTTP_HOST'] ?? 'gorwanda-plus.wasmer.app';
-        return $protocol . $host . '/' . ltrim($path, '/');
+        return rtrim($protocol . $host, '/') . '/' . ltrim($path, '/');
     } else {
         return '/gorwanda-plus/' . ltrim($path, '/');
     }

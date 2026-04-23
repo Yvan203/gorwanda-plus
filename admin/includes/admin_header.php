@@ -7,12 +7,13 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
+// Include functions.php first - this contains isLoggedIn(), isAdmin(), etc.
+require_once dirname(__DIR__, 2) . '/includes/functions.php';
 require_once dirname(__DIR__, 2) . '/includes/db.php';
-require_once dirname(__DIR__, 2) . '/config.php';
 
 // Check if user is logged in and is admin
 if (!isLoggedIn() || !isAdmin()) {
-    header('Location: ' . baseUrl('login.php'));
+    header('Location: /gorwanda-plus/login.php');
     exit;
 }
 
@@ -77,7 +78,7 @@ $admin = $stmt->fetch();
     <!-- Bootstrap Icons -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
 
-    <!-- Google Fonts - Inter (Booking.com font) -->
+    <!-- Google Fonts - Inter -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap" rel="stylesheet">
 
     <!-- Chart.js -->
@@ -88,7 +89,7 @@ $admin = $stmt->fetch();
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.js"></script>
 
     <style>
-        /* ===== BOOKING.COM ADMIN STYLES ===== */
+        /* ===== ADMIN STYLES - BOOKING.COM INSPIRED ===== */
         :root {
             --booking-blue: #003b95;
             --booking-blue-light: #0066ff;
@@ -175,6 +176,7 @@ $admin = $stmt->fetch();
             position: sticky;
             top: 0;
             z-index: 10;
+            margin-bottom: 0;
         }
 
         .sidebar-brand {
@@ -197,6 +199,7 @@ $admin = $stmt->fetch();
             padding: 16px 20px;
             border-bottom: 1px solid var(--booking-border);
             background: var(--booking-gray-light);
+            margin-top: 0;
         }
 
         .user-info {
@@ -762,19 +765,225 @@ $admin = $stmt->fetch();
                 </div>
             </div>
 
-            <!-- AI Suggestion Card (Dynamic) -->
+            <!-- AI Suggestion Card - Dynamic with Real Data -->
             <div class="ai-suggestion-card" id="aiSuggestionCard">
                 <div class="ai-suggestion-header">
                     <i class="bi bi-stars"></i>
                     <span>AI Insight</span>
+                    <span class="ai-refresh" onclick="refreshAIInsights()" title="Refresh insights">
+                        <i class="bi bi-arrow-repeat"></i>
+                    </span>
                 </div>
                 <div class="ai-suggestion-content" id="aiSuggestionContent">
-                    Loading insights...
+                    <div class="ai-loading">
+                        <i class="bi bi-hourglass-split"></i> Analyzing platform data...
+                    </div>
                 </div>
-                <a href="#" class="ai-suggestion-action" id="aiSuggestionAction">
-                    Learn more <i class="bi bi-arrow-right"></i>
+                <a href="#" class="ai-suggestion-action" id="aiSuggestionAction" target="_blank">
+                    View Details <i class="bi bi-arrow-right"></i>
                 </a>
+                <div class="ai-timestamp" id="aiTimestamp"></div>
             </div>
+
+            <style>
+                /* Enhanced AI Suggestion Card */
+                .ai-suggestion-card {
+                    position: relative;
+                    margin: 16px 12px;
+                    padding: 14px;
+                    background: linear-gradient(135deg, #f0f9ff 0%, #e6f4ea 100%);
+                    border-radius: var(--radius-md);
+                    border: 1px solid rgba(0, 102, 255, 0.2);
+                    transition: all var(--transition-fast);
+                }
+
+                .ai-suggestion-header {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    margin-bottom: 10px;
+                }
+
+                .ai-suggestion-header i:first-child {
+                    font-size: 1.125rem;
+                    color: var(--booking-blue);
+                }
+
+                .ai-suggestion-header span {
+                    font-weight: 600;
+                    font-size: 0.75rem;
+                    color: var(--booking-blue);
+                    text-transform: uppercase;
+                    letter-spacing: 0.5px;
+                }
+
+                .ai-refresh {
+                    margin-left: auto;
+                    cursor: pointer;
+                    opacity: 0.6;
+                    transition: all var(--transition-fast);
+                }
+
+                .ai-refresh:hover {
+                    opacity: 1;
+                    transform: rotate(180deg);
+                }
+
+                .ai-refresh i {
+                    font-size: 0.75rem;
+                    color: var(--booking-blue);
+                }
+
+                .ai-suggestion-content {
+                    font-size: 0.75rem;
+                    color: var(--booking-text);
+                    line-height: 1.5;
+                    margin-bottom: 10px;
+                    min-height: 50px;
+                }
+
+                .ai-loading {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    color: var(--booking-text-light);
+                    font-size: 0.6875rem;
+                }
+
+                .ai-loading i {
+                    animation: spin 1s linear infinite;
+                }
+
+                @keyframes spin {
+                    from {
+                        transform: rotate(0deg);
+                    }
+
+                    to {
+                        transform: rotate(360deg);
+                    }
+                }
+
+                .ai-suggestion-action {
+                    font-size: 0.625rem;
+                    color: var(--booking-blue);
+                    text-decoration: none;
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 4px;
+                    font-weight: 600;
+                }
+
+                .ai-suggestion-action:hover {
+                    text-decoration: underline;
+                }
+
+                .ai-timestamp {
+                    font-size: 0.5625rem;
+                    color: var(--booking-text-lighter);
+                    margin-top: 8px;
+                    text-align: right;
+                }
+
+                /* Insight types styling */
+                .ai-insight-high {
+                    border-left: 3px solid var(--booking-success);
+                }
+
+                .ai-insight-medium {
+                    border-left: 3px solid var(--booking-warning);
+                }
+
+                .ai-insight-info {
+                    border-left: 3px solid var(--booking-blue);
+                }
+            </style>
+
+            <script>
+                // AI Insights - Dynamic loading from database
+                let currentInsights = [];
+                let insightIndex = 0;
+                let insightInterval;
+
+                function loadAIInsights() {
+                    const contentDiv = document.getElementById('aiSuggestionContent');
+                    const actionLink = document.getElementById('aiSuggestionAction');
+                    const timestampDiv = document.getElementById('aiTimestamp');
+
+                    // Show loading state
+                    contentDiv.innerHTML = '<div class="ai-loading"><i class="bi bi-hourglass-split"></i> Analyzing platform data...</div>';
+
+                    // Fetch insights from backend
+                    fetch('includes/ai_insights.php?ajax=1')
+                        .then(response => response.json())
+                        .then(data => {
+                            currentInsights = data;
+                            insightIndex = 0;
+
+                            if (currentInsights.length === 0) {
+                                contentDiv.innerHTML = '<div class="ai-loading"><i class="bi bi-check-circle"></i> All systems operational. No insights at this time.</div>';
+                                actionLink.style.display = 'none';
+                                timestampDiv.innerHTML = '';
+                                return;
+                            }
+
+                            actionLink.style.display = 'inline-flex';
+                            showNextInsight();
+
+                            // Rotate insights every 15 seconds
+                            if (insightInterval) clearInterval(insightInterval);
+                            insightInterval = setInterval(showNextInsight, 15000);
+
+                            // Update timestamp
+                            timestampDiv.innerHTML = '<i class="bi bi-clock"></i> Updated ' + new Date().toLocaleTimeString();
+                        })
+                        .catch(error => {
+                            console.error('Error loading insights:', error);
+                            contentDiv.innerHTML = '<div class="ai-loading"><i class="bi bi-exclamation-triangle"></i> Unable to load insights. Please refresh.</div>';
+                            actionLink.style.display = 'none';
+                        });
+                }
+
+                function showNextInsight() {
+                    if (currentInsights.length === 0) return;
+
+                    const insight = currentInsights[insightIndex % currentInsights.length];
+                    const contentDiv = document.getElementById('aiSuggestionContent');
+                    const actionLink = document.getElementById('aiSuggestionAction');
+
+                    // Add type-based styling
+                    let priorityClass = '';
+                    if (insight.priority === 1) priorityClass = 'ai-insight-high';
+                    else if (insight.priority === 2) priorityClass = 'ai-insight-medium';
+                    else priorityClass = 'ai-insight-info';
+
+                    contentDiv.innerHTML = `<div class="${priorityClass}" style="padding-left: 8px;">${insight.content}</div>`;
+                    actionLink.href = insight.action_link;
+                    actionLink.innerHTML = `${insight.action_text} <i class="bi bi-arrow-right"></i>`;
+
+                    // Change header icon based on insight type
+                    const headerIcon = document.querySelector('.ai-suggestion-header i:first-child');
+                    if (headerIcon) {
+                        headerIcon.className = `bi bi-${insight.icon}`;
+                    }
+
+                    insightIndex++;
+                }
+
+                function refreshAIInsights() {
+                    loadAIInsights();
+                }
+
+                // Load insights when page loads
+                document.addEventListener('DOMContentLoaded', function() {
+                    loadAIInsights();
+                });
+
+                // Optional: Auto-refresh every 5 minutes
+                setInterval(function() {
+                    refreshAIInsights();
+                }, 300000); // 5 minutes
+            </script>
 
             <nav class="sidebar-nav">
                 <!-- Main -->
@@ -939,7 +1148,7 @@ $admin = $stmt->fetch();
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a href="/gorwanda-plus/logout.php" class="nav-link" style="color: var(--booking-danger);">
+                            <a href="logout.php" class="nav-link" style="color: var(--booking-danger);">
                                 <i class="bi bi-box-arrow-right"></i>
                                 Logout
                             </a>
@@ -998,7 +1207,7 @@ $admin = $stmt->fetch();
                             <a href="/gorwanda-plus/" class="dropdown-item-custom">
                                 <i class="bi bi-house"></i> View Site
                             </a>
-                            <a href="/gorwanda-plus/logout.php" class="dropdown-item-custom">
+                            <a href="logout.php" class="dropdown-item-custom">
                                 <i class="bi bi-box-arrow-right"></i> Sign Out
                             </a>
                         </div>

@@ -1,0 +1,5 @@
+kind: wasmer.io/App.v0
+name: gorwanda-plus
+owner: yvan203
+package: .
+app_id: da_K0DIkt5U4X0J

@@ -64,12 +64,13 @@ if ($type === 'stays') {
     $totalCount = $stmt->fetchColumn();
     
     // Main query with sorting
-    $orderBy = match($sort) {
-        'price_low' => 'min_price ASC',
-        'price_high' => 'min_price DESC',
-        'rating' => 's.avg_rating DESC, s.review_count DESC',
-        default => 's.avg_rating DESC, s.review_count DESC'
-    };
+    if ($sort === 'price_low') {
+        $orderBy = 'min_price IS NULL, min_price ASC';
+    } elseif ($sort === 'price_high') {
+        $orderBy = 'min_price DESC';
+    } else {
+        $orderBy = 's.avg_rating DESC, s.review_count DESC';
+    }
     
     $sql = "SELECT s.*, l.name as location_name,
             (SELECT MIN(base_price) FROM stay_rooms WHERE stay_id = s.stay_id AND is_active = 1) as min_price,
@@ -121,12 +122,13 @@ if ($type === 'stays') {
     $stmt->execute($params);
     $totalCount = $stmt->fetchColumn();
     
-    $orderBy = match($sort) {
-        'price_low' => 'cf.daily_rate ASC',
-        'price_high' => 'cf.daily_rate DESC',
-        'rating' => 'cr.avg_rating DESC',
-        default => 'cr.avg_rating DESC, cr.review_count DESC'
-    };
+    if ($sort === 'price_low') {
+        $orderBy = 'cf.daily_rate ASC';
+    } elseif ($sort === 'price_high') {
+        $orderBy = 'cf.daily_rate DESC';
+    } else {
+        $orderBy = 'cr.avg_rating DESC, cr.review_count DESC';
+    }
     
     $sql = "SELECT cf.*, cr.company_name, cr.pickup_locations, cr.avg_rating, cr.review_count, l.name as location_name
             FROM car_fleet cf
@@ -172,12 +174,13 @@ if ($type === 'stays') {
     $stmt->execute($params);
     $totalCount = $stmt->fetchColumn();
     
-    $orderBy = match($sort) {
-        'price_low' => 'min_price ASC',
-        'price_high' => 'min_price DESC',
-        'rating' => 'a.avg_rating DESC',
-        default => 'a.avg_rating DESC'
-    };
+    if ($sort === 'price_low') {
+        $orderBy = 'min_price IS NULL, min_price ASC';
+    } elseif ($sort === 'price_high') {
+        $orderBy = 'min_price DESC';
+    } else {
+        $orderBy = 'a.avg_rating DESC';
+    }
     
     $sql = "SELECT a.*, c.name as category_name, c.icon as category_icon, l.name as location_name,
             (SELECT MIN(base_price) FROM attraction_tiers WHERE attraction_id = a.attraction_id AND is_active = 1) as min_price,
@@ -869,6 +872,45 @@ if ($type === 'stays') {
         flex: 1;
     }
 }
+    
+    .bkg-card-image {
+        width: 100%;
+        height: 200px;
+    }
+    
+    .bkg-card-content {
+        flex-direction: column;
+    }
+    
+    .bkg-card-side {
+        width: 100%;
+        align-items: flex-start;
+        border-top: 1px solid var(--bkg-gray-200);
+        padding-top: 16px;
+        margin-top: 16px;
+    }
+    
+    .bkg-rating {
+        justify-content: flex-start;
+    }
+    
+    .bkg-rating-text {
+        text-align: left;
+    }
+    
+    .bkg-price-block {
+        text-align: left;
+        width: 100%;
+    }
+    
+    .bkg-price-deal {
+        justify-content: flex-start;
+    }
+    
+    .bkg-map-container {
+        display: none;
+    }
+}
 </style>
 
 <!-- Loading Spinner -->
@@ -905,21 +947,21 @@ if ($type === 'stays') {
                         
                         <!-- Price Range -->
                         <div class="bkg-filter-section">
-                            <h6 class="bkg-filter-subtitle">Price range</h6>
+                            <h6 class="bkg-filter-subtitle"><?php echo tr('price_range'); ?></h6>
                             <div class="bkg-price-range">
                                 <input type="number" name="min_price" class="bkg-price-input" 
-                                       placeholder="Min" value="<?php echo $minPrice ?: ''; ?>" min="0" step="1000">
+                                       placeholder="<?php echo tr('min'); ?>" value="<?php echo $minPrice ?: ''; ?>" min="0" step="1000">
                                 <span class="bkg-price-sep">—</span>
                                 <input type="number" name="max_price" class="bkg-price-input" 
-                                       placeholder="Max" value="<?php echo $maxPrice ?: ''; ?>" min="0" step="1000">
+                                       placeholder="<?php echo tr('max'); ?>" value="<?php echo $maxPrice ?: ''; ?>" min="0" step="1000">
                             </div>
-                            <small class="text-muted" style="font-size: 11px;">per <?php echo $type === 'stays' ? 'night' : ($type === 'cars' ? 'day' : 'person'); ?></small>
+                            <small class="text-muted" style="font-size: 11px;"><?php echo $type === 'stays' ? tr('per_night') : ($type === 'cars' ? tr('per_day') : tr('per_person')); ?></small>
                         </div>
                         
                         <!-- Property Type (Fixed - single select, not array) -->
                         <?php if ($type === 'stays' && !empty($propertyTypes)): ?>
                         <div class="bkg-filter-section">
-                            <h6 class="bkg-filter-subtitle">Property type</h6>
+                            <h6 class="bkg-filter-subtitle"><?php echo tr('property_type'); ?></h6>
                             <?php foreach ($propertyTypes as $pt): 
                                 $val = $pt['stay_type'];
                                 $label = ucfirst($val);
@@ -1046,12 +1088,12 @@ if ($type === 'stays') {
                             $image = $item['main_image'];
                             $amenities = json_decode($item['included_items'] ?? '[]', true);
                             $link = "attractions/detail.php?id={$id}";
-                            $priceLabel = 'person';
+                            $priceLabel = tr('person_one');
                             $badge = $item['duration_minutes'] ? ['text' => round($item['duration_minutes']/60, 1) . 'h', 'color' => 'info'] : null;
                             $savings = 0;
                         }
                         
-                        $reviewLabel = $ratingVal ? getReviewLabel($ratingVal) : ['New', 'bg-secondary'];
+                        $reviewLabel = $ratingVal ? getReviewLabel($ratingVal) : [tr('new_label'), 'bg-secondary'];
                         
                         // Calculate total for stays
                         $totalPrice = $price;

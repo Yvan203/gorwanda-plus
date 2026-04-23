@@ -19,13 +19,15 @@ require_once 'db.php';
  * Get current language from session, cookie, or browser
  */
 function getCurrentLanguage() {
+    $validLangs = ['en', 'fr', 'rw', 'sw'];
+
     // Check session first
-    if (isset($_SESSION['language'])) {
+    if (isset($_SESSION['language']) && in_array($_SESSION['language'], $validLangs, true)) {
         return $_SESSION['language'];
     }
     
     // Check cookie
-    if (isset($_COOKIE['user_language'])) {
+    if (isset($_COOKIE['user_language']) && in_array($_COOKIE['user_language'], $validLangs, true)) {
         $_SESSION['language'] = $_COOKIE['user_language'];
         return $_COOKIE['user_language'];
     }
@@ -33,34 +35,103 @@ function getCurrentLanguage() {
     // Detect from browser
     if (isset($_SERVER['HTTP_ACCEPT_LANGUAGE'])) {
         $browserLang = substr($_SERVER['HTTP_ACCEPT_LANGUAGE'], 0, 2);
-        $validLangs = ['en', 'fr', 'rw', 'sw'];
-        if (in_array($browserLang, $validLangs)) {
+        if (in_array($browserLang, $validLangs, true)) {
             $_SESSION['language'] = $browserLang;
             return $browserLang;
         }
     }
     
     // Default to English
+    $_SESSION['language'] = 'en';
     return 'en';
+}
+
+function setCurrentLanguage($language) {
+    $validLangs = ['en', 'fr', 'rw', 'sw'];
+    $language = in_array($language, $validLangs, true) ? $language : 'en';
+
+    $_SESSION['language'] = $language;
+    $_COOKIE['user_language'] = $language;
+
+    return setcookie('user_language', $language, [
+        'expires' => time() + (86400 * 30),
+        'path' => '/',
+        'domain' => '',
+        'secure' => !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off',
+        'httponly' => true,
+        'samesite' => 'Lax'
+    ]);
 }
 
 /**
  * Get current currency from session or cookie
  */
 function getCurrentCurrency() {
+    $validCurrencies = ['RWF', 'USD', 'EUR', 'GBP', 'KES', 'UGX', 'TZS'];
+
     // Check session first
-    if (isset($_SESSION['currency'])) {
+    if (isset($_SESSION['currency']) && in_array($_SESSION['currency'], $validCurrencies, true)) {
         return $_SESSION['currency'];
     }
     
     // Check cookie
-    if (isset($_COOKIE['user_currency'])) {
+    if (isset($_COOKIE['user_currency']) && in_array($_COOKIE['user_currency'], $validCurrencies, true)) {
         $_SESSION['currency'] = $_COOKIE['user_currency'];
         return $_COOKIE['user_currency'];
     }
     
     // Default to RWF
+    $_SESSION['currency'] = 'RWF';
     return 'RWF';
+}
+
+function setCurrentCurrency($currency) {
+    $validCurrencies = ['RWF', 'USD', 'EUR', 'GBP', 'KES', 'UGX', 'TZS'];
+    $currency = in_array($currency, $validCurrencies, true) ? $currency : 'RWF';
+
+    $_SESSION['currency'] = $currency;
+    $_COOKIE['user_currency'] = $currency;
+
+    return setcookie('user_currency', $currency, [
+        'expires' => time() + (86400 * 30),
+        'path' => '/',
+        'domain' => '',
+        'secure' => !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off',
+        'httponly' => true,
+        'samesite' => 'Lax'
+    ]);
+}
+
+function getCurrentRequestPath() {
+    if (!empty($_SERVER['REQUEST_URI'])) {
+        return $_SERVER['REQUEST_URI'];
+    }
+
+    if (!empty($_SERVER['PHP_SELF'])) {
+        return $_SERVER['PHP_SELF'];
+    }
+
+    return '/gorwanda-plus/';
+}
+
+function sanitizeLocalRedirect($redirect, $default = '/gorwanda-plus/') {
+    if (!is_string($redirect) || $redirect === '') {
+        return $default;
+    }
+
+    $redirect = str_replace(["\r", "\n"], '', $redirect);
+
+    if (preg_match('#^https?://#i', $redirect)) {
+        $path = parse_url($redirect, PHP_URL_PATH) ?: '';
+        $query = parse_url($redirect, PHP_URL_QUERY);
+        $redirect = $path . ($query ? '?' . $query : '');
+    }
+
+    if ($redirect === '' || $redirect[0] !== '/') {
+        return $default;
+    }
+
+    return $redirect;
 }
 
 // Set language and currency for use throughout the site
@@ -74,6 +145,8 @@ $translations = [
         'hero_cars' => 'Drive your own adventure',
         'hero_attractions' => 'Discover unforgettable experiences',
         'hero_restaurants' => "Explore Rwanda's best restaurants",
+        'hero_title' => "Discover Rwanda's best stays, cars & experiences",
+        'hero_subtitle_main' => 'From gorilla trekking to luxury lodges, find your perfect Rwandan adventure',
         'hero_stats' => '+ listings',
         'stays' => 'stays',
         'cars' => 'cars',
@@ -91,7 +164,20 @@ $translations = [
         'browse' => 'Browse by',
         'featured' => 'Homes guests love',
         'featured_stays_sub' => 'Discover properties with outstanding reviews',
+        'popular_destinations_title' => 'Popular destinations in Rwanda',
+        'popular_destinations_sub' => 'Most searched locations by travelers',
+        'browse_all_stays' => 'Browse all stays',
+        'browse_all_cars' => 'Browse all cars',
+        'browse_all_experiences' => 'Browse all experiences',
+        'featured_cars_title' => 'Reliable car rentals',
         'featured_cars_sub' => 'Reliable car hire with best rates',
+        'featured_experiences_title' => 'Unforgettable experiences',
+        'featured_experiences_sub' => 'Top-rated activities loved by travelers',
+        'no_stays_available' => 'No stays available at the moment',
+        'no_cars_available' => 'No cars available at the moment',
+        'no_experiences_available' => 'No experiences available at the moment',
+        'listings_word' => 'listings',
+        'car_rental' => 'Car Rental',
         'featured_attractions_sub' => 'Activities loved by travellers',
         'featured_restaurants_sub' => 'Top-rated dining experiences',
         'offers' => 'Special offers and deals',
@@ -127,6 +213,8 @@ $translations = [
         'hero_cars' => 'Vivez votre propre aventure',
         'hero_attractions' => 'Découvrez des expériences inoubliables',
         'hero_restaurants' => 'Explorez les meilleurs restaurants du Rwanda',
+        'hero_title' => 'Decouvrez les meilleurs hebergements, voitures et experiences du Rwanda',
+        'hero_subtitle_main' => 'Du trekking des gorilles aux lodges de luxe, trouvez votre aventure ideale au Rwanda',
         'hero_stats' => '+ annonces',
         'stays' => 'hébergements',
         'cars' => 'voitures',
@@ -144,7 +232,20 @@ $translations = [
         'browse' => 'Parcourir par',
         'featured' => 'Logements appréciés des voyageurs',
         'featured_stays_sub' => 'Découvrez des propriétés avec des avis exceptionnels',
+        'popular_destinations_title' => 'Destinations populaires au Rwanda',
+        'popular_destinations_sub' => 'Lieux les plus recherches par les voyageurs',
+        'browse_all_stays' => 'Voir tous les hebergements',
+        'browse_all_cars' => 'Voir toutes les voitures',
+        'browse_all_experiences' => 'Voir toutes les experiences',
+        'featured_cars_title' => 'Locations de voitures fiables',
         'featured_cars_sub' => 'Location de voitures fiable aux meilleurs tarifs',
+        'featured_experiences_title' => 'Experiences inoubliables',
+        'featured_experiences_sub' => 'Activites les mieux notees et aimees des voyageurs',
+        'no_stays_available' => 'Aucun hebergement disponible pour le moment',
+        'no_cars_available' => 'Aucune voiture disponible pour le moment',
+        'no_experiences_available' => 'Aucune experience disponible pour le moment',
+        'listings_word' => 'annonces',
+        'car_rental' => 'Location de voiture',
         'featured_attractions_sub' => 'Activités préférées des voyageurs',
         'featured_restaurants_sub' => 'Expériences culinaires les mieux notées',
         'offers' => 'Offres spéciales',
@@ -180,6 +281,8 @@ $translations = [
         'hero_cars' => 'Twarana imodoka yawe',
         'hero_attractions' => 'Hitamo ibyishimo utazibagirwa',
         'hero_restaurants' => 'Shakira amaresitora meza mu Rwanda',
+        'hero_title' => 'Menya amacumbi, imodoka n ibikorwa byiza byo mu Rwanda',
+        'hero_subtitle_main' => 'Kuva ku gusura ingagi kugera kuri lodges nziza, shaka urugendo rwawe rwiza mu Rwanda',
         'hero_stats' => '+ amatangazo',
         'stays' => 'aho kugara',
         'cars' => 'imodoka',
@@ -197,7 +300,20 @@ $translations = [
         'browse' => 'Hitamo ukurikije',
         'featured' => 'Aho kugara abagenzi bakunda',
         'featured_stays_sub' => 'Hitamo amazu afite ibitekerezo byiza',
+        'popular_destinations_title' => 'Ahantu hakunzwe mu Rwanda',
+        'popular_destinations_sub' => 'Ahantu hishakishwa cyane n abagenzi',
+        'browse_all_stays' => 'Reba amacumbi yose',
+        'browse_all_cars' => 'Reba imodoka zose',
+        'browse_all_experiences' => 'Reba ibikorwa byose',
+        'featured_cars_title' => 'Imodoka zizewe zo gukodesha',
         'featured_cars_sub' => 'Imodoka zizewe ku gihembo cyiza',
+        'featured_experiences_title' => 'Ibyiza bitazibagirana',
+        'featured_experiences_sub' => 'Ibikorwa byakunzwe kandi bifite amanota menshi',
+        'no_stays_available' => 'Nta macumbi ahari ubu',
+        'no_cars_available' => 'Nta modoka zihari ubu',
+        'no_experiences_available' => 'Nta bikorwa bihari ubu',
+        'listings_word' => 'amatangazo',
+        'car_rental' => 'Gukodesha imodoka',
         'featured_attractions_sub' => 'Ibikorwa abagenzi bakunda',
         'featured_restaurants_sub' => 'Amaresitora meza',
         'offers' => 'Amasezerano y\'umwihariko',
@@ -233,6 +349,8 @@ $translations = [
         'hero_cars' => 'Endesha gari yako mwenyewe',
         'hero_attractions' => 'Gundua matukio ya kukumbukwa',
         'hero_restaurants' => 'Gundua migahawa bora Rwanda',
+        'hero_title' => 'Gundua malazi, magari na matukio bora ya Rwanda',
+        'hero_subtitle_main' => 'Kuanzia kutembelea sokwe hadi lodge za kifahari, pata safari yako bora ya Rwanda',
         'hero_stats' => '+ matangazo',
         'stays' => 'malazi',
         'cars' => 'magari',
@@ -250,7 +368,20 @@ $translations = [
         'browse' => 'Vinjari kwa',
         'featured' => 'Makao wanayopenda wasafiri',
         'featured_stays_sub' => 'Gundua mali zilizo na maoni bora',
+        'popular_destinations_title' => 'Maeneo maarufu nchini Rwanda',
+        'popular_destinations_sub' => 'Maeneo yanayotafutwa zaidi na wasafiri',
+        'browse_all_stays' => 'Tazama malazi yote',
+        'browse_all_cars' => 'Tazama magari yote',
+        'browse_all_experiences' => 'Tazama matukio yote',
+        'featured_cars_title' => 'Ukodishaji wa magari wa kuaminika',
         'featured_cars_sub' => 'Ukodishaji wa gari unaotegemeka kwa bei bora',
+        'featured_experiences_title' => 'Matukio yasiyosahaulika',
+        'featured_experiences_sub' => 'Shughuli zilizopewa alama nzuri na kupendwa na wasafiri',
+        'no_stays_available' => 'Hakuna malazi yanayopatikana kwa sasa',
+        'no_cars_available' => 'Hakuna magari yanayopatikana kwa sasa',
+        'no_experiences_available' => 'Hakuna matukio yanayopatikana kwa sasa',
+        'listings_word' => 'matangazo',
+        'car_rental' => 'Ukodishaji wa gari',
         'featured_attractions_sub' => 'Shughuli zinazopendwa na wasafiri',
         'featured_restaurants_sub' => 'Uzoefu bora wa chakula',
         'offers' => 'Ofa maalum',
@@ -283,8 +414,383 @@ $translations = [
     ]
 ];
 
+$translationExtras = [
+    'en' => [
+        'select_currency' => 'Select your currency',
+        'select_language' => 'Select your language',
+        'help_center' => 'Help Center',
+        'contact_us' => 'Contact us',
+        'safety_information' => 'Safety information',
+        'cancellation_options' => 'Cancellation options',
+        'faq' => 'FAQ',
+        'discover' => 'Discover',
+        'about_gorwanda' => 'About GoRwanda+',
+        'partner_program' => 'Partner program',
+        'destinations' => 'Destinations',
+        'travel_blog' => 'Travel blog',
+        'rwanda_spotlight' => 'Rwanda Spotlight',
+        'legal' => 'Legal',
+        'privacy_policy' => 'Privacy policy',
+        'terms_service' => 'Terms of service',
+        'cookie_policy' => 'Cookie policy',
+        'accessibility' => 'Accessibility',
+        'get_app' => 'Get the app',
+        'book_on_the_go' => 'Book on the go with exclusive mobile deals.',
+        'we_accept' => 'We accept',
+        'proud_partners' => 'Proud partners of East African tourism',
+        'eac_partner' => 'EAC Partner',
+        'sitemap' => 'Sitemap',
+        'privacy' => 'Privacy',
+        'terms' => 'Terms',
+        'all_rights_reserved' => 'All rights reserved.',
+        'made_in_rwanda' => 'Made with in Rwanda',
+        'register' => 'Register',
+        'sign_in' => 'Sign in',
+        'sign_out' => 'Sign out',
+        'profile' => 'Profile',
+        'bookings' => 'Bookings',
+        'wishlist' => 'Wishlist',
+        'partner_dashboard' => 'Partner dashboard',
+        'list_property' => 'List your property',
+        'where_going' => 'Where are you going?',
+        'checkin' => 'Check-in',
+        'checkout' => 'Check-out',
+        'adult_one' => 'adult',
+        'adult_many' => 'adults',
+        'pickup_location' => 'Pick-up location',
+        'pickup_date' => 'Pick-up date',
+        'return_date' => 'Return date',
+        'date' => 'Date',
+        'person_one' => 'person',
+        'person_many' => 'people',
+        'restaurant_location' => 'Restaurant name or location',
+        'search' => 'Search',
+        'special_offers' => 'Special offers and deals',
+        'offers_stays_sub' => 'Save big on your next stay',
+        'view_all_deals' => 'View all deals',
+        'price_range' => 'Price range',
+        'min' => 'Min',
+        'max' => 'Max',
+        'property_type' => 'Property type',
+        'support_title' => 'Support',
+        'kigali' => 'Kigali',
+        'musanze_volcanoes' => 'Musanze (Volcanoes)',
+        'nyungwe_forest' => 'Nyungwe Forest',
+        'akagera_national_park' => 'Akagera National Park',
+        'lake_kivu' => 'Lake Kivu',
+        'thank_you_subscribe' => 'Thank you for subscribing! You will receive the best deals.',
+        'enter_valid_email' => 'Please enter a valid email address.',
+        'app_coming_soon' => 'Our mobile app will be released in Q4 2026! Stay tuned for exclusive deals.',
+        'scroll_to_top' => 'Scroll to top',
+        'just_now' => 'Just now',
+        'minute_ago' => '1 minute ago',
+        'minutes_ago' => ':count minutes ago',
+        'hour_ago' => '1 hour ago',
+        'hours_ago' => ':count hours ago',
+        'days_ago' => ':count days ago',
+        'yesterday' => 'yesterday',
+        'week_ago' => '1 week ago',
+        'weeks_ago' => ':count weeks ago',
+        'month_ago' => '1 month ago',
+        'months_ago' => ':count months ago',
+        'year_ago' => '1 year ago',
+        'years_ago' => ':count years ago',
+        'new_label' => 'New',
+        'exceptional' => 'Exceptional',
+        'excellent' => 'Excellent',
+        'very_good' => 'Very Good',
+        'good' => 'Good',
+        'pleasant' => 'Pleasant',
+        'fair' => 'Fair',
+        'review_score' => 'Review Score',
+    ],
+    'fr' => [
+        'select_currency' => 'Choisissez votre devise',
+        'select_language' => 'Choisissez votre langue',
+        'help_center' => 'Centre d aide',
+        'contact_us' => 'Contactez-nous',
+        'safety_information' => 'Informations de securite',
+        'cancellation_options' => 'Options d annulation',
+        'faq' => 'FAQ',
+        'discover' => 'Decouvrir',
+        'about_gorwanda' => 'A propos de GoRwanda+',
+        'partner_program' => 'Programme partenaire',
+        'destinations' => 'Destinations',
+        'travel_blog' => 'Blog voyage',
+        'rwanda_spotlight' => 'A la une du Rwanda',
+        'legal' => 'Mentions legales',
+        'privacy_policy' => 'Politique de confidentialite',
+        'terms_service' => 'Conditions d utilisation',
+        'cookie_policy' => 'Politique des cookies',
+        'accessibility' => 'Accessibilite',
+        'get_app' => 'Obtenez l application',
+        'book_on_the_go' => 'Reservez partout avec des offres mobiles exclusives.',
+        'we_accept' => 'Nous acceptons',
+        'proud_partners' => 'Fiers partenaires du tourisme est-africain',
+        'eac_partner' => 'Partenaire CAE',
+        'sitemap' => 'Plan du site',
+        'privacy' => 'Confidentialite',
+        'terms' => 'Conditions',
+        'all_rights_reserved' => 'Tous droits reserves.',
+        'made_in_rwanda' => 'Fait avec au Rwanda',
+        'register' => 'S inscrire',
+        'sign_in' => 'Se connecter',
+        'sign_out' => 'Se deconnecter',
+        'profile' => 'Profil',
+        'bookings' => 'Reservations',
+        'wishlist' => 'Favoris',
+        'partner_dashboard' => 'Tableau partenaire',
+        'list_property' => 'Lister votre bien',
+        'where_going' => 'Ou allez-vous ?',
+        'checkin' => 'Arrivee',
+        'checkout' => 'Depart',
+        'adult_one' => 'adulte',
+        'adult_many' => 'adultes',
+        'pickup_location' => 'Lieu de prise en charge',
+        'pickup_date' => 'Date de prise en charge',
+        'return_date' => 'Date de retour',
+        'date' => 'Date',
+        'person_one' => 'personne',
+        'person_many' => 'personnes',
+        'restaurant_location' => 'Nom du restaurant ou lieu',
+        'search' => 'Rechercher',
+        'special_offers' => 'Offres speciales',
+        'offers_stays_sub' => 'Economisez sur votre prochain sejour',
+        'view_all_deals' => 'Voir toutes les offres',
+        'price_range' => 'Fourchette de prix',
+        'min' => 'Min',
+        'max' => 'Max',
+        'property_type' => 'Type de logement',
+        'support_title' => 'Assistance',
+        'kigali' => 'Kigali',
+        'musanze_volcanoes' => 'Musanze (Volcans)',
+        'nyungwe_forest' => 'Foret de Nyungwe',
+        'akagera_national_park' => 'Parc national de l Akagera',
+        'lake_kivu' => 'Lac Kivu',
+        'thank_you_subscribe' => 'Merci pour votre inscription ! Vous recevrez les meilleures offres.',
+        'enter_valid_email' => 'Veuillez entrer une adresse e-mail valide.',
+        'app_coming_soon' => 'Notre application mobile arrivera au quatrieme trimestre 2026 !',
+        'scroll_to_top' => 'Retour en haut',
+        'just_now' => 'A l instant',
+        'minute_ago' => 'il y a 1 minute',
+        'minutes_ago' => 'il y a :count minutes',
+        'hour_ago' => 'il y a 1 heure',
+        'hours_ago' => 'il y a :count heures',
+        'days_ago' => 'il y a :count jours',
+        'yesterday' => 'hier',
+        'week_ago' => 'il y a 1 semaine',
+        'weeks_ago' => 'il y a :count semaines',
+        'month_ago' => 'il y a 1 mois',
+        'months_ago' => 'il y a :count mois',
+        'year_ago' => 'il y a 1 an',
+        'years_ago' => 'il y a :count ans',
+        'new_label' => 'Nouveau',
+        'exceptional' => 'Exceptionnel',
+        'excellent' => 'Excellent',
+        'very_good' => 'Tres bien',
+        'good' => 'Bon',
+        'pleasant' => 'Agreable',
+        'fair' => 'Moyen',
+        'review_score' => 'Note',
+    ],
+    'rw' => [
+        'select_currency' => 'Hitamo ifaranga',
+        'select_language' => 'Hitamo ururimi',
+        'help_center' => 'Ubufasha',
+        'contact_us' => 'Tuvugishe',
+        'safety_information' => 'Amakuru y umutekano',
+        'cancellation_options' => 'Uburyo bwo guhagarika',
+        'faq' => 'Ibibazo bikunze kubazwa',
+        'discover' => 'Shakisha',
+        'about_gorwanda' => 'Ibyerekeye GoRwanda+',
+        'partner_program' => 'Gahunda y abafatanyabikorwa',
+        'destinations' => 'Aho ujya',
+        'travel_blog' => 'Inkuru z urugendo',
+        'rwanda_spotlight' => 'Ibidasanzwe by u Rwanda',
+        'legal' => 'Amategeko',
+        'privacy_policy' => 'Politiki y ibanga',
+        'terms_service' => 'Amabwiriza y ikoreshwa',
+        'cookie_policy' => 'Politiki ya cookies',
+        'accessibility' => 'Ubwisanzure bwo gukoresha',
+        'get_app' => 'Bona app',
+        'book_on_the_go' => 'Bika aho uri hose ukoresheje amahirwe ya app.',
+        'we_accept' => 'Twakira',
+        'proud_partners' => 'Abafatanyabikorwa b ubukerarugendo bwa Afurika y Iburasirazuba',
+        'eac_partner' => 'Umufatanyabikorwa wa EAC',
+        'sitemap' => 'Ikarita y urubuga',
+        'privacy' => 'Ibanga',
+        'terms' => 'Amabwiriza',
+        'all_rights_reserved' => 'Uburenganzira bwose bwabitswe.',
+        'made_in_rwanda' => 'Byakozwe mu Rwanda',
+        'register' => 'Iyandikishe',
+        'sign_in' => 'Injira',
+        'sign_out' => 'Sohoka',
+        'profile' => 'Umwirondoro',
+        'bookings' => 'Ibyo wabitse',
+        'wishlist' => 'Ibyifuzo',
+        'partner_dashboard' => 'Imbonerahamwe y umufatanyabikorwa',
+        'list_property' => 'Tangaza umutungo wawe',
+        'where_going' => 'Ujya he?',
+        'checkin' => 'Kwinjira',
+        'checkout' => 'Gusohoka',
+        'adult_one' => 'umuntu mukuru',
+        'adult_many' => 'abantu bakuru',
+        'pickup_location' => 'Aho gufatira imodoka',
+        'pickup_date' => 'Itariki yo gufatira',
+        'return_date' => 'Itariki yo kugarura',
+        'date' => 'Itariki',
+        'person_one' => 'umuntu',
+        'person_many' => 'abantu',
+        'restaurant_location' => 'Izina rya restaurant cyangwa aho iri',
+        'search' => 'Shakisha',
+        'special_offers' => 'Amasezerano y umwihariko',
+        'offers_stays_sub' => 'Zigama kuri gahunda yawe itaha',
+        'view_all_deals' => 'Reba amasezerano yose',
+        'price_range' => 'Igipimo cy ibiciro',
+        'min' => 'Hasi',
+        'max' => 'Hejuru',
+        'property_type' => 'Ubwoko bw icumbi',
+        'support_title' => 'Ubufasha',
+        'kigali' => 'Kigali',
+        'musanze_volcanoes' => 'Musanze (ibirunga)',
+        'nyungwe_forest' => 'Ishyamba rya Nyungwe',
+        'akagera_national_park' => 'Pariki y Igihugu y Akagera',
+        'lake_kivu' => 'Ikiyaga cya Kivu',
+        'thank_you_subscribe' => 'Murakoze kwiyandikisha! Tuzakohereza amasezerano meza.',
+        'enter_valid_email' => 'Andika aderesi ya email iboneye.',
+        'app_coming_soon' => 'App yacu ya mobile izasohoka mu gihembwe cya kane cya 2026!',
+        'scroll_to_top' => 'Subira hejuru',
+        'just_now' => 'Ubu nyene',
+        'minute_ago' => 'Umunota 1 ushize',
+        'minutes_ago' => 'Iminota :count ishize',
+        'hour_ago' => 'Isaha 1 ishize',
+        'hours_ago' => 'Amasaha :count ashize',
+        'days_ago' => 'Iminsi :count ishize',
+        'yesterday' => 'ejo',
+        'week_ago' => 'Icyumweru 1 gishize',
+        'weeks_ago' => 'Ibyumweru :count bishize',
+        'month_ago' => 'Ukwezi 1 gushize',
+        'months_ago' => 'Amezi :count ashize',
+        'year_ago' => 'Umwaka 1 ushize',
+        'years_ago' => 'Imyaka :count ishize',
+        'new_label' => 'Gishya',
+        'exceptional' => 'Bidasanzwe',
+        'excellent' => 'Byiza cyane',
+        'very_good' => 'Byiza',
+        'good' => 'Ni byiza',
+        'pleasant' => 'Birashimishije',
+        'fair' => 'Biraringaniye',
+        'review_score' => 'Amanota',
+    ],
+    'sw' => [
+        'select_currency' => 'Chagua sarafu yako',
+        'select_language' => 'Chagua lugha yako',
+        'help_center' => 'Kituo cha msaada',
+        'contact_us' => 'Wasiliana nasi',
+        'safety_information' => 'Taarifa za usalama',
+        'cancellation_options' => 'Chaguo za kughairi',
+        'faq' => 'Maswali ya mara kwa mara',
+        'discover' => 'Gundua',
+        'about_gorwanda' => 'Kuhusu GoRwanda+',
+        'partner_program' => 'Mpango wa washirika',
+        'destinations' => 'Maeneo',
+        'travel_blog' => 'Blogu ya safari',
+        'rwanda_spotlight' => 'Vivutio vya Rwanda',
+        'legal' => 'Kisheria',
+        'privacy_policy' => 'Sera ya faragha',
+        'terms_service' => 'Masharti ya huduma',
+        'cookie_policy' => 'Sera ya kuki',
+        'accessibility' => 'Ufikiaji',
+        'get_app' => 'Pata app',
+        'book_on_the_go' => 'Weka nafasi popote ulipo kwa ofa maalum za simu.',
+        'we_accept' => 'Tunapokea',
+        'proud_partners' => 'Washirika wa fahari wa utalii wa Afrika Mashariki',
+        'eac_partner' => 'Mshirika wa EAC',
+        'sitemap' => 'Ramani ya tovuti',
+        'privacy' => 'Faragha',
+        'terms' => 'Masharti',
+        'all_rights_reserved' => 'Haki zote zimehifadhiwa.',
+        'made_in_rwanda' => 'Imefanywa Rwanda',
+        'register' => 'Jisajili',
+        'sign_in' => 'Ingia',
+        'sign_out' => 'Toka',
+        'profile' => 'Wasifu',
+        'bookings' => 'Uhifadhi',
+        'wishlist' => 'Orodha ya matamanio',
+        'partner_dashboard' => 'Dashibodi ya mshirika',
+        'list_property' => 'Tangaza mali yako',
+        'where_going' => 'Unaenda wapi?',
+        'checkin' => 'Kuingia',
+        'checkout' => 'Kutoka',
+        'adult_one' => 'mtu mzima',
+        'adult_many' => 'watu wazima',
+        'pickup_location' => 'Mahali pa kuchukua',
+        'pickup_date' => 'Tarehe ya kuchukua',
+        'return_date' => 'Tarehe ya kurudisha',
+        'date' => 'Tarehe',
+        'person_one' => 'mtu',
+        'person_many' => 'watu',
+        'restaurant_location' => 'Jina la mgahawa au mahali',
+        'search' => 'Tafuta',
+        'special_offers' => 'Ofa maalum',
+        'offers_stays_sub' => 'Okoa kwenye malazi yako yajayo',
+        'view_all_deals' => 'Tazama ofa zote',
+        'price_range' => 'Kiwango cha bei',
+        'min' => 'Chini',
+        'max' => 'Juu',
+        'property_type' => 'Aina ya malazi',
+        'support_title' => 'Msaada',
+        'kigali' => 'Kigali',
+        'musanze_volcanoes' => 'Musanze (Volkano)',
+        'nyungwe_forest' => 'Msitu wa Nyungwe',
+        'akagera_national_park' => 'Hifadhi ya Taifa ya Akagera',
+        'lake_kivu' => 'Ziwa Kivu',
+        'thank_you_subscribe' => 'Asante kwa kujisajili! Utapokea ofa bora.',
+        'enter_valid_email' => 'Tafadhali weka barua pepe sahihi.',
+        'app_coming_soon' => 'Programu yetu ya simu itatolewa robo ya nne ya 2026!',
+        'scroll_to_top' => 'Rudi juu',
+        'just_now' => 'Sasa hivi',
+        'minute_ago' => 'Dakika 1 iliyopita',
+        'minutes_ago' => 'Dakika :count zilizopita',
+        'hour_ago' => 'Saa 1 iliyopita',
+        'hours_ago' => 'Masaa :count yaliyopita',
+        'days_ago' => 'Siku :count zilizopita',
+        'yesterday' => 'jana',
+        'week_ago' => 'Wiki 1 iliyopita',
+        'weeks_ago' => 'Wiki :count zilizopita',
+        'month_ago' => 'Mwezi 1 uliopita',
+        'months_ago' => 'Miezi :count iliyopita',
+        'year_ago' => 'Mwaka 1 uliopita',
+        'years_ago' => 'Miaka :count iliyopita',
+        'new_label' => 'Mpya',
+        'exceptional' => 'Bora sana',
+        'excellent' => 'Bora',
+        'very_good' => 'Nzuri sana',
+        'good' => 'Nzuri',
+        'pleasant' => 'Inapendeza',
+        'fair' => 'Wastani',
+        'review_score' => 'Alama',
+    ],
+];
+
+foreach ($translationExtras as $langCode => $extraValues) {
+    $translations[$langCode] = array_merge($translations[$langCode] ?? [], $extraValues);
+}
+
 // Get translations for current language
-$t = $translations[$currentLang];
+$t = $translations[$currentLang] ?? $translations['en'];
+
+function tr($key, $default = null, $replacements = []) {
+    global $t;
+
+    $text = $t[$key] ?? $default ?? $key;
+
+    foreach ($replacements as $needle => $value) {
+        $text = str_replace(':' . $needle, (string)$value, $text);
+    }
+
+    return $text;
+}
 
 // ============================================
 // CURRENCY CONVERSION WITH UPDATABLE RATES
@@ -410,13 +916,13 @@ function formatRating($rating) {
 }
 
 function getReviewLabel($rating) {
-    if ($rating >= 9) return ['Exceptional', 'bg-success'];
-    if ($rating >= 8) return ['Excellent', 'bg-success'];
-    if ($rating >= 7) return ['Very Good', 'bg-success'];
-    if ($rating >= 6) return ['Good', 'bg-info'];
-    if ($rating >= 5) return ['Pleasant', 'bg-info'];
-    if ($rating >= 4) return ['Fair', 'bg-warning'];
-    return ['Review Score', 'bg-secondary'];
+    if ($rating >= 9) return [tr('exceptional'), 'bg-success'];
+    if ($rating >= 8) return [tr('excellent'), 'bg-success'];
+    if ($rating >= 7) return [tr('very_good'), 'bg-success'];
+    if ($rating >= 6) return [tr('good'), 'bg-info'];
+    if ($rating >= 5) return [tr('pleasant'), 'bg-info'];
+    if ($rating >= 4) return [tr('fair'), 'bg-warning'];
+    return [tr('review_score'), 'bg-secondary'];
 }
 
 // ============================================
@@ -688,7 +1194,7 @@ function verifyPassword($password, $hash) {
 // ============================================
 
 function timeAgo($timestamp) {
-    if (!$timestamp) return 'Just now';
+    if (!$timestamp) return tr('just_now');
     
     $time_ago = strtotime($timestamp);
     $current_time = time();
@@ -703,19 +1209,19 @@ function timeAgo($timestamp) {
     $years = round($seconds / 31553280);
     
     if ($seconds <= 60) {
-        return "Just now";
+        return tr('just_now');
     } else if ($minutes <= 60) {
-        return ($minutes == 1) ? "1 minute ago" : "$minutes minutes ago";
+        return ($minutes == 1) ? tr('minute_ago') : tr('minutes_ago', null, ['count' => $minutes]);
     } else if ($hours <= 24) {
-        return ($hours == 1) ? "1 hour ago" : "$hours hours ago";
+        return ($hours == 1) ? tr('hour_ago') : tr('hours_ago', null, ['count' => $hours]);
     } else if ($days <= 7) {
-        return ($days == 1) ? "yesterday" : "$days days ago";
+        return ($days == 1) ? tr('yesterday') : tr('days_ago', null, ['count' => $days]);
     } else if ($weeks <= 4.3) {
-        return ($weeks == 1) ? "1 week ago" : "$weeks weeks ago";
+        return ($weeks == 1) ? tr('week_ago') : tr('weeks_ago', null, ['count' => $weeks]);
     } else if ($months <= 12) {
-        return ($months == 1) ? "1 month ago" : "$months months ago";
+        return ($months == 1) ? tr('month_ago') : tr('months_ago', null, ['count' => $months]);
     } else {
-        return ($years == 1) ? "1 year ago" : "$years years ago";
+        return ($years == 1) ? tr('year_ago') : tr('years_ago', null, ['count' => $years]);
     }
 }
 

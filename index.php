@@ -14,12 +14,18 @@ $totalCars = $db->query("SELECT COUNT(*) FROM car_rentals WHERE is_active = 1 AN
 $totalExperiences = $db->query("SELECT COUNT(*) FROM attractions WHERE is_active = 1 AND is_verified = 1")->fetchColumn();
 $totalRestaurants = $db->query("SELECT COUNT(*) FROM restaurants WHERE is_active = 1")->fetchColumn();
 
-// Get featured stays
+// Get featured stays with complete data including amenities and discounts
 $featuredStays = $db->query("
-    SELECT s.*, l.name as location_name,
-    (SELECT MIN(base_price) FROM stay_rooms WHERE stay_id = s.stay_id AND is_active = 1) as min_price,
-    (SELECT MAX(base_price) FROM stay_rooms WHERE stay_id = s.stay_id AND is_active = 1) as max_price,
-    (SELECT COUNT(*) FROM reviews WHERE stay_id = s.stay_id) as review_count
+    SELECT 
+        s.*, 
+        l.name as location_name,
+        (SELECT MIN(base_price) FROM stay_rooms WHERE stay_id = s.stay_id AND is_active = 1) as min_price,
+        (SELECT MAX(base_price) FROM stay_rooms WHERE stay_id = s.stay_id AND is_active = 1) as max_price,
+        (SELECT COUNT(*) FROM stay_rooms WHERE stay_id = s.stay_id AND is_active = 1) as room_count,
+        (SELECT GROUP_CONCAT(DISTINCT room_name SEPARATOR '|') FROM stay_rooms WHERE stay_id = s.stay_id AND is_active = 1 LIMIT 3) as room_names,
+        (SELECT COUNT(*) FROM reviews WHERE stay_id = s.stay_id) as review_count,
+        (SELECT AVG(overall_rating) FROM reviews WHERE stay_id = s.stay_id) as avg_rating,
+        (SELECT JSON_EXTRACT(amenities, '$') FROM amenities WHERE amenity_key IN (SELECT JSON_EXTRACT(amenities, '$'))) as amenities_data
     FROM stays s
     LEFT JOIN locations l ON s.location_id = l.location_id
     WHERE s.is_active = 1 AND s.is_verified = 1
@@ -27,12 +33,16 @@ $featuredStays = $db->query("
     LIMIT 8
 ")->fetchAll();
 
-// Get featured cars
+// Get featured cars with fleet info
 $featuredCars = $db->query("
-    SELECT cr.*, l.name as location_name,
-    (SELECT MIN(daily_rate) FROM car_fleet WHERE rental_id = cr.rental_id AND is_active = 1) as min_price,
-    (SELECT COUNT(*) FROM car_fleet WHERE rental_id = cr.rental_id AND is_active = 1) as car_count,
-    (SELECT COUNT(*) FROM reviews WHERE rental_id = cr.rental_id) as review_count
+    SELECT 
+        cr.*, 
+        l.name as location_name,
+        (SELECT MIN(daily_rate) FROM car_fleet WHERE rental_id = cr.rental_id AND is_active = 1) as min_price,
+        (SELECT MAX(daily_rate) FROM car_fleet WHERE rental_id = cr.rental_id AND is_active = 1) as max_price,
+        (SELECT COUNT(*) FROM car_fleet WHERE rental_id = cr.rental_id AND is_active = 1) as car_count,
+        (SELECT COUNT(*) FROM reviews WHERE rental_id = cr.rental_id) as review_count,
+        (SELECT AVG(overall_rating) FROM reviews WHERE rental_id = cr.rental_id) as avg_rating
     FROM car_rentals cr
     LEFT JOIN locations l ON cr.location_id = l.location_id
     WHERE cr.is_active = 1 AND cr.is_verified = 1
@@ -40,11 +50,17 @@ $featuredCars = $db->query("
     LIMIT 8
 ")->fetchAll();
 
-// Get featured attractions
+// Get featured attractions with tier pricing
 $featuredAttractions = $db->query("
-    SELECT a.*, c.name as category_name, l.name as location_name,
-    (SELECT MIN(base_price) FROM attraction_tiers WHERE attraction_id = a.attraction_id AND is_active = 1) as min_price,
-    (SELECT COUNT(*) FROM reviews WHERE attraction_id = a.attraction_id) as review_count
+    SELECT 
+        a.*, 
+        c.name as category_name, 
+        l.name as location_name,
+        (SELECT MIN(base_price) FROM attraction_tiers WHERE attraction_id = a.attraction_id AND is_active = 1) as min_price,
+        (SELECT MAX(base_price) FROM attraction_tiers WHERE attraction_id = a.attraction_id AND is_active = 1) as max_price,
+        (SELECT COUNT(*) FROM attraction_tiers WHERE attraction_id = a.attraction_id AND is_active = 1) as tier_count,
+        (SELECT COUNT(*) FROM reviews WHERE attraction_id = a.attraction_id) as review_count,
+        (SELECT AVG(overall_rating) FROM reviews WHERE attraction_id = a.attraction_id) as avg_rating
     FROM attractions a
     LEFT JOIN categories c ON a.category_id = c.category_id
     LEFT JOIN locations l ON a.location_id = l.location_id
@@ -53,32 +69,63 @@ $featuredAttractions = $db->query("
     LIMIT 8
 ")->fetchAll();
 
+// Get stays with active discounts (from offers table)
+$specialOffers = $db->query("
+    SELECT 
+        s.*, 
+        l.name as location_name,
+        o.offer_name,
+        o.discount_value,
+        o.offer_type,
+        (SELECT MIN(base_price) FROM stay_rooms WHERE stay_id = s.stay_id AND is_active = 1) as original_price,
+        CASE 
+            WHEN o.offer_type = 'percentage' THEN (SELECT MIN(base_price) FROM stay_rooms WHERE stay_id = s.stay_id AND is_active = 1) * (1 - o.discount_value / 100)
+            WHEN o.offer_type = 'fixed' THEN (SELECT MIN(base_price) FROM stay_rooms WHERE stay_id = s.stay_id AND is_active = 1) - o.discount_value
+            ELSE (SELECT MIN(base_price) FROM stay_rooms WHERE stay_id = s.stay_id AND is_active = 1) * 0.85
+        END as discounted_price,
+        (SELECT COUNT(*) FROM reviews WHERE stay_id = s.stay_id) as review_count,
+        (SELECT AVG(overall_rating) FROM reviews WHERE stay_id = s.stay_id) as avg_rating
+    FROM stays s
+    LEFT JOIN locations l ON s.location_id = l.location_id
+    INNER JOIN offers o ON o.vendor_id = s.stay_id
+    WHERE s.is_active = 1 AND s.is_verified = 1
+    AND o.is_active = 1 
+    AND o.start_date <= CURDATE() 
+    AND o.end_date >= CURDATE()
+    ORDER BY o.discount_value DESC
+    LIMIT 4
+")->fetchAll();
 
+// If no offers from offers table, get some default properties with calculated discounts
+if (empty($specialOffers)) {
+    $specialOffers = $db->query("
+        SELECT 
+            s.*, 
+            l.name as location_name,
+            (SELECT MIN(base_price) FROM stay_rooms WHERE stay_id = s.stay_id AND is_active = 1) as original_price,
+            (SELECT MIN(base_price) FROM stay_rooms WHERE stay_id = s.stay_id AND is_active = 1) * 0.85 as discounted_price,
+            (SELECT COUNT(*) FROM reviews WHERE stay_id = s.stay_id) as review_count,
+            (SELECT AVG(overall_rating) FROM reviews WHERE stay_id = s.stay_id) as avg_rating
+        FROM stays s
+        LEFT JOIN locations l ON s.location_id = l.location_id
+        WHERE s.is_active = 1 AND s.is_verified = 1
+        AND s.star_rating >= 4
+        ORDER BY RAND()
+        LIMIT 4
+    ")->fetchAll();
+}
 
-// Get popular destinations
+// Get popular destinations with counts
 $popularDestinations = $db->query("
-    SELECT l.*, 
-    (SELECT COUNT(*) FROM stays WHERE location_id = l.location_id AND is_active = 1) as stay_count,
-    (SELECT COUNT(*) FROM attractions WHERE location_id = l.location_id AND is_active = 1) as attraction_count,
-    (SELECT COUNT(*) FROM car_rentals WHERE location_id = l.location_id AND is_active = 1) as car_count
+    SELECT 
+        l.*, 
+        (SELECT COUNT(*) FROM stays WHERE location_id = l.location_id AND is_active = 1) as stay_count,
+        (SELECT COUNT(*) FROM attractions WHERE location_id = l.location_id AND is_active = 1) as attraction_count,
+        (SELECT COUNT(*) FROM car_rentals WHERE location_id = l.location_id AND is_active = 1) as car_count
     FROM locations l 
     WHERE l.type IN ('city', 'landmark') AND l.is_active = 1
     ORDER BY l.search_count DESC 
     LIMIT 6
-")->fetchAll();
-
-// Get special offers (stays with discounts)
-$specialOffers = $db->query("
-    SELECT s.*, l.name as location_name,
-    (SELECT MIN(base_price) FROM stay_rooms WHERE stay_id = s.stay_id AND is_active = 1) as original_price,
-    (SELECT MIN(base_price) * 0.85 FROM stay_rooms WHERE stay_id = s.stay_id AND is_active = 1) as discounted_price,
-    (SELECT COUNT(*) FROM reviews WHERE stay_id = s.stay_id) as review_count
-    FROM stays s
-    LEFT JOIN locations l ON s.location_id = l.location_id
-    WHERE s.is_active = 1 AND s.is_verified = 1
-    AND s.stay_id IN (4, 5, 3) -- Selected properties for offers
-    ORDER BY RAND()
-    LIMIT 4
 ")->fetchAll();
 
 $pageTitle = 'GoRwanda+ - Discover Rwanda\'s Best Stays, Cars & Experiences';
@@ -100,7 +147,6 @@ require_once 'includes/header.php';
         --bkg-gray-500: #6b6b6b;
         --bkg-gray-700: #262626;
         --bkg-white: #ffffff;
-
         --radius-sm: 2px;
         --radius-md: 4px;
         --radius-lg: 8px;
@@ -111,7 +157,7 @@ require_once 'includes/header.php';
         --transition: all 0.2s ease;
     }
 
-    /* Hero Section - Booking.com Style */
+    /* Hero Section */
     .bkg-hero {
         background: linear-gradient(135deg, var(--bkg-blue-dark) 0%, #001b4f 100%);
         padding: 40px 0 60px;
@@ -194,11 +240,7 @@ require_once 'includes/header.php';
         border-radius: 24px;
     }
 
-    .bkg-hero-badge i {
-        font-size: 14px;
-    }
-
-    /* Section Headers - Booking.com Style */
+    /* Section Headers */
     .bkg-section-header {
         display: flex;
         justify-content: space-between;
@@ -235,7 +277,7 @@ require_once 'includes/header.php';
         color: #005fa3;
     }
 
-    /* Destination Cards - Booking.com Style */
+    /* Destination Cards */
     .bkg-destination-grid {
         display: grid;
         grid-template-columns: repeat(6, 1fr);
@@ -292,7 +334,7 @@ require_once 'includes/header.php';
         color: var(--bkg-gray-500);
     }
 
-    /* Property Cards - Exact Booking.com Style */
+    /* Property Cards */
     .bkg-card-grid {
         display: grid;
         grid-template-columns: repeat(4, 1fr);
@@ -321,7 +363,7 @@ require_once 'includes/header.php';
 
     .bkg-card-image {
         position: relative;
-        height: 160px;
+        height: 180px;
         overflow: hidden;
         background: #f5f5f5;
     }
@@ -367,7 +409,7 @@ require_once 'includes/header.php';
         padding: 4px 8px;
         border-radius: 4px 4px 4px 0;
         font-weight: 700;
-        font-size: 14px;
+        font-size: 13px;
         z-index: 2;
     }
 
@@ -398,7 +440,7 @@ require_once 'includes/header.php';
     .bkg-property-location {
         font-size: 12px;
         color: var(--bkg-gray-500);
-        margin-bottom: 12px;
+        margin-bottom: 8px;
         display: flex;
         align-items: center;
         gap: 4px;
@@ -407,6 +449,29 @@ require_once 'includes/header.php';
     .bkg-property-location i {
         color: var(--bkg-blue-primary);
         font-size: 12px;
+    }
+
+    /* Amenities Tags */
+    .bkg-amenities {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        margin-bottom: 12px;
+    }
+
+    .bkg-amenity-tag {
+        font-size: 9px;
+        padding: 2px 6px;
+        background: var(--bkg-gray-100);
+        border-radius: 3px;
+        color: var(--bkg-gray-500);
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+    }
+
+    .bkg-amenity-tag i {
+        font-size: 8px;
     }
 
     .bkg-property-footer {
@@ -728,53 +793,61 @@ require_once 'includes/header.php';
 </section>
 
 <!-- Popular Destinations -->
-<section class="container mb-5">
-    <div class="bkg-section-header">
-        <div>
-            <h2 class="bkg-section-title"><?php echo tr('popular_destinations_title'); ?></h2>
-            <p class="bkg-section-subtitle"><?php echo tr('popular_destinations_sub'); ?></p>
-        </div>
-        <a href="search.php" class="bkg-section-link">
-            <?php echo tr('see_all'); ?> <i class="bi bi-arrow-right"></i>
-        </a>
-    </div>
-
-    <div class="bkg-destination-grid">
-        <?php foreach ($popularDestinations as $dest):
-            $count = $dest['stay_count'] + $dest['attraction_count'] + $dest['car_count'];
-        ?>
-            <a href="search.php?location=<?php echo urlencode($dest['name']); ?>" class="bkg-destination-card">
-                <div class="bkg-destination-icon">
-                    <i class="bi bi-geo-alt-fill"></i>
-                </div>
-                <div class="bkg-destination-name"><?php echo sanitize($dest['name']); ?></div>
-                <div class="bkg-destination-count"><?php echo $count; ?> <?php echo tr('listings_word'); ?></div>
+<?php if (!empty($popularDestinations)): ?>
+    <section class="container mb-5">
+        <div class="bkg-section-header">
+            <div>
+                <h2 class="bkg-section-title"><?php echo tr('popular_destinations_title'); ?></h2>
+                <p class="bkg-section-subtitle"><?php echo tr('popular_destinations_sub'); ?></p>
+            </div>
+            <a href="search.php" class="bkg-section-link">
+                <?php echo tr('see_all'); ?> <i class="bi bi-arrow-right"></i>
             </a>
-        <?php endforeach; ?>
-    </div>
-</section>
+        </div>
+
+        <div class="bkg-destination-grid">
+            <?php foreach ($popularDestinations as $dest):
+                $count = ($dest['stay_count'] ?? 0) + ($dest['attraction_count'] ?? 0) + ($dest['car_count'] ?? 0);
+            ?>
+                <a href="search.php?location=<?php echo urlencode($dest['name']); ?>" class="bkg-destination-card">
+                    <div class="bkg-destination-icon">
+                        <i class="bi bi-geo-alt-fill"></i>
+                    </div>
+                    <div class="bkg-destination-name"><?php echo sanitize($dest['name']); ?></div>
+                    <div class="bkg-destination-count"><?php echo $count; ?> <?php echo tr('listings_word'); ?></div>
+                </a>
+            <?php endforeach; ?>
+        </div>
+    </section>
+<?php endif; ?>
 
 <!-- Featured Stays -->
-<section class="container mb-5">
-    <div class="bkg-section-header">
-        <div>
-            <h2 class="bkg-section-title"><?php echo tr('featured'); ?></h2>
-            <p class="bkg-section-subtitle"><?php echo tr('featured_stays_sub'); ?></p>
+<?php if (!empty($featuredStays)): ?>
+    <section class="container mb-5">
+        <div class="bkg-section-header">
+            <div>
+                <h2 class="bkg-section-title"><?php echo tr('featured'); ?></h2>
+                <p class="bkg-section-subtitle"><?php echo tr('featured_stays_sub'); ?></p>
+            </div>
+            <a href="search.php?type=stays" class="bkg-section-link">
+                <?php echo tr('browse_all_stays'); ?> <i class="bi bi-arrow-right"></i>
+            </a>
         </div>
-        <a href="search.php?type=stays" class="bkg-section-link">
-            <?php echo tr('browse_all_stays'); ?> <i class="bi bi-arrow-right"></i>
-        </a>
-    </div>
 
-    <?php if (empty($featuredStays)): ?>
-        <div class="text-center py-5 bg-light rounded">
-            <p class="text-secondary"><?php echo tr('no_stays_available'); ?></p>
-        </div>
-    <?php else: ?>
         <div class="bkg-card-grid">
             <?php foreach ($featuredStays as $stay):
                 $reviewLabel = $stay['avg_rating'] ? getReviewLabel($stay['avg_rating']) : [tr('new_label'), 'bg-secondary'];
                 $image = $stay['main_image'] ?: 'https://images.unsplash.com/photo-1566073771259-6a8506099945?w=400&q=60';
+                $amenities = [];
+                if ($stay['amenities']) {
+                    $amenityKeys = json_decode($stay['amenities'], true);
+                    if (is_array($amenityKeys)) {
+                        $placeholders = implode(',', array_fill(0, count($amenityKeys), '?'));
+                        $stmt = $db->prepare("SELECT amenity_name, amenity_icon FROM amenities WHERE amenity_key IN ($placeholders) LIMIT 4");
+                        $stmt->execute($amenityKeys);
+                        $amenities = $stmt->fetchAll();
+                    }
+                }
             ?>
                 <a href="stays/detail.php?id=<?php echo $stay['stay_id']; ?>" class="bkg-property-card">
                     <div class="bkg-card-image">
@@ -793,12 +866,26 @@ require_once 'includes/header.php';
                     </div>
 
                     <div class="bkg-card-content">
-                        <div class="bkg-property-type"><?php echo ucfirst($stay['stay_type']); ?></div>
+                        <div class="bkg-property-type"><?php echo ucfirst($stay['stay_type']); ?> • <?php echo $stay['room_count'] ?? 0; ?> rooms</div>
                         <h3 class="bkg-property-name"><?php echo sanitize($stay['stay_name']); ?></h3>
                         <div class="bkg-property-location">
                             <i class="bi bi-geo-alt"></i>
-                            <?php echo sanitize($stay['location_name'] ?? $stay['address'] ?? 'Rwanda'); ?>
+                            <?php echo sanitize($stay['location_name'] ?? $stay['city'] ?? 'Rwanda'); ?>
                         </div>
+
+                        <?php if (!empty($amenities)): ?>
+                            <div class="bkg-amenities">
+                                <?php foreach ($amenities as $amenity): ?>
+                                    <span class="bkg-amenity-tag">
+                                        <i class="bi <?php echo $amenity['amenity_icon']; ?>"></i>
+                                        <?php echo sanitize($amenity['amenity_name']); ?>
+                                    </span>
+                                <?php endforeach; ?>
+                                <?php if (count($amenities) >= 4 && ($stay['room_count'] ?? 0) > 0): ?>
+                                    <span class="bkg-amenity-tag">+<?php echo ($stay['room_count'] ?? 0); ?> rooms</span>
+                                <?php endif; ?>
+                            </div>
+                        <?php endif; ?>
 
                         <div class="bkg-property-footer">
                             <div class="bkg-property-rating">
@@ -825,26 +912,22 @@ require_once 'includes/header.php';
                 </a>
             <?php endforeach; ?>
         </div>
-    <?php endif; ?>
-</section>
+    </section>
+<?php endif; ?>
 
 <!-- Featured Cars -->
-<section class="container mb-5">
-    <div class="bkg-section-header">
-        <div>
-            <h2 class="bkg-section-title"><?php echo tr('featured_cars_title'); ?></h2>
-            <p class="bkg-section-subtitle"><?php echo tr('featured_cars_sub'); ?></p>
+<?php if (!empty($featuredCars)): ?>
+    <section class="container mb-5">
+        <div class="bkg-section-header">
+            <div>
+                <h2 class="bkg-section-title"><?php echo tr('featured_cars_title'); ?></h2>
+                <p class="bkg-section-subtitle"><?php echo tr('featured_cars_sub'); ?></p>
+            </div>
+            <a href="search.php?type=cars" class="bkg-section-link">
+                <?php echo tr('browse_all_cars'); ?> <i class="bi bi-arrow-right"></i>
+            </a>
         </div>
-        <a href="search.php?type=cars" class="bkg-section-link">
-            <?php echo tr('browse_all_cars'); ?> <i class="bi bi-arrow-right"></i>
-        </a>
-    </div>
 
-    <?php if (empty($featuredCars)): ?>
-        <div class="text-center py-5 bg-light rounded">
-            <p class="text-secondary"><?php echo tr('no_cars_available'); ?></p>
-        </div>
-    <?php else: ?>
         <div class="bkg-card-grid">
             <?php foreach ($featuredCars as $car):
                 $image = $car['logo'] ?: 'https://images.unsplash.com/photo-1533473359331-0135ef1b58bf?w=400&q=60';
@@ -866,7 +949,7 @@ require_once 'includes/header.php';
                     </div>
 
                     <div class="bkg-card-content">
-                        <div class="bkg-property-type"><?php echo tr('car_rental'); ?></div>
+                        <div class="bkg-property-type"><?php echo tr('car_rental'); ?> • <?php echo $car['car_count']; ?> vehicles</div>
                         <h3 class="bkg-property-name"><?php echo sanitize($car['company_name']); ?></h3>
                         <div class="bkg-property-location">
                             <i class="bi bi-geo-alt"></i>
@@ -898,26 +981,22 @@ require_once 'includes/header.php';
                 </a>
             <?php endforeach; ?>
         </div>
-    <?php endif; ?>
-</section>
+    </section>
+<?php endif; ?>
 
 <!-- Featured Experiences -->
-<section class="container mb-5">
-    <div class="bkg-section-header">
-        <div>
-            <h2 class="bkg-section-title"><?php echo tr('featured_experiences_title'); ?></h2>
-            <p class="bkg-section-subtitle"><?php echo tr('featured_experiences_sub'); ?></p>
+<?php if (!empty($featuredAttractions)): ?>
+    <section class="container mb-5">
+        <div class="bkg-section-header">
+            <div>
+                <h2 class="bkg-section-title"><?php echo tr('featured_experiences_title'); ?></h2>
+                <p class="bkg-section-subtitle"><?php echo tr('featured_experiences_sub'); ?></p>
+            </div>
+            <a href="search.php?type=attractions" class="bkg-section-link">
+                <?php echo tr('browse_all_experiences'); ?> <i class="bi bi-arrow-right"></i>
+            </a>
         </div>
-        <a href="search.php?type=attractions" class="bkg-section-link">
-            <?php echo tr('browse_all_experiences'); ?> <i class="bi bi-arrow-right"></i>
-        </a>
-    </div>
 
-    <?php if (empty($featuredAttractions)): ?>
-        <div class="text-center py-5 bg-light rounded">
-            <p class="text-secondary"><?php echo tr('no_experiences_available'); ?></p>
-        </div>
-    <?php else: ?>
         <div class="bkg-card-grid">
             <?php foreach ($featuredAttractions as $attraction):
                 $image = $attraction['main_image'] ?: 'https://images.unsplash.com/photo-1523802004999-6c49b5a3f9b7?w=400&q=60';
@@ -939,7 +1018,7 @@ require_once 'includes/header.php';
                     </div>
 
                     <div class="bkg-card-content">
-                        <div class="bkg-property-type"><?php echo sanitize($attraction['category_name'] ?? tr('experiences')); ?></div>
+                        <div class="bkg-property-type"><?php echo sanitize($attraction['category_name'] ?? tr('experiences')); ?> • <?php echo $attraction['tier_count']; ?> pricing tiers</div>
                         <h3 class="bkg-property-name"><?php echo sanitize($attraction['attraction_name']); ?></h3>
                         <div class="bkg-property-location">
                             <i class="bi bi-geo-alt"></i>
@@ -971,8 +1050,8 @@ require_once 'includes/header.php';
                 </a>
             <?php endforeach; ?>
         </div>
-    <?php endif; ?>
-</section>
+    </section>
+<?php endif; ?>
 
 <!-- Special Offers -->
 <?php if (!empty($specialOffers)): ?>
@@ -990,13 +1069,14 @@ require_once 'includes/header.php';
         <div class="bkg-offers-grid">
             <?php foreach ($specialOffers as $offer):
                 $image = $offer['main_image'] ?: 'https://images.unsplash.com/photo-1566073771259-6a8506099945?w=400&q=60';
+                $discountPercent = isset($offer['discount_value']) ? round($offer['discount_value']) : 15;
             ?>
                 <div class="bkg-offer-card" onclick="window.location.href='stays/detail.php?id=<?php echo $offer['stay_id']; ?>'">
                     <div class="bkg-offer-image">
                         <img src="<?php echo getImageUrl($image, 'stay'); ?>"
                             alt="<?php echo sanitize($offer['stay_name']); ?>"
                             loading="lazy">
-                        <span class="bkg-offer-tag">-15%</span>
+                        <span class="bkg-offer-tag">-<?php echo $discountPercent; ?>%</span>
                     </div>
                     <div class="bkg-offer-content">
                         <h4 class="bkg-offer-title"><?php echo sanitize($offer['stay_name']); ?></h4>
@@ -1019,11 +1099,9 @@ require_once 'includes/header.php';
 <!-- Why Book With Us -->
 <section class="container mb-5">
     <div class="bkg-features">
-        <div class="bkg-section-header text-center mb-4">
-            <div>
-                <h2 class="bkg-section-title"><?php echo tr('why_book'); ?></h2>
-                <p class="bkg-section-subtitle"><?php echo tr('why_book_sub'); ?></p>
-            </div>
+        <div class="bkg-section-header text-center mb-4 d-block">
+            <h2 class="bkg-section-title text-center"><?php echo tr('why_book'); ?></h2>
+            <p class="bkg-section-subtitle text-center"><?php echo tr('why_book_sub'); ?></p>
         </div>
 
         <div class="bkg-features-grid">
@@ -1072,7 +1150,7 @@ require_once 'includes/header.php';
                 entries.forEach(entry => {
                     if (entry.isIntersecting) {
                         const img = entry.target;
-                        img.src = img.src; // Trigger load
+                        img.src = img.src;
                         img.classList.add('loaded');
                         imageObserver.unobserve(img);
                     }
@@ -1081,13 +1159,6 @@ require_once 'includes/header.php';
 
             images.forEach(img => imageObserver.observe(img));
         }
-    });
-
-    // Smooth hover animations
-    document.querySelectorAll('.bkg-property-card, .bkg-destination-card, .bkg-offer-card').forEach(card => {
-        card.addEventListener('mouseenter', function() {
-            this.style.transition = 'all 0.3s ease';
-        });
     });
 </script>
 

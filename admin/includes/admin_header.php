@@ -22,10 +22,11 @@ $userId = $_SESSION['user_id'];
 $currentPage = basename($_SERVER['PHP_SELF']);
 $pageTitle = isset($pageTitle) ? $pageTitle . ' - GoRwanda+ Admin' : 'GoRwanda+ Admin Dashboard';
 
-// Get unread notifications count
-$stmt = $db->prepare("SELECT COUNT(*) FROM notifications WHERE user_id = ? AND is_read = 0");
-$stmt->execute([$userId]);
-$unreadNotifications = $stmt->fetchColumn();
+// Include notifications AFTER $userId is defined
+require_once dirname(__DIR__, 2) . '/includes/notifications.php';
+$nm = new NotificationManager();
+$unreadNotifications = $nm->getUnreadCount($userId);
+$recentNotifications = $nm->getNotifications($userId, 10);
 
 // Get pending verifications
 $stmt = $db->query("SELECT COUNT(*) FROM stays WHERE is_verified = 0 AND is_active = 1");
@@ -176,7 +177,6 @@ $admin = $stmt->fetch();
             position: sticky;
             top: 0;
             z-index: 10;
-            margin-bottom: 0;
         }
 
         .sidebar-brand {
@@ -199,7 +199,6 @@ $admin = $stmt->fetch();
             padding: 16px 20px;
             border-bottom: 1px solid var(--booking-border);
             background: var(--booking-gray-light);
-            margin-top: 0;
         }
 
         .user-info {
@@ -380,7 +379,7 @@ $admin = $stmt->fetch();
             margin-bottom: 8px;
         }
 
-        .ai-suggestion-header i {
+        .ai-suggestion-header i:first-child {
             font-size: 1.125rem;
             color: var(--booking-blue);
             animation: pulse 2s infinite;
@@ -406,11 +405,51 @@ $admin = $stmt->fetch();
             letter-spacing: 0.5px;
         }
 
+        .ai-refresh {
+            margin-left: auto;
+            cursor: pointer;
+            opacity: 0.6;
+            transition: all var(--transition-fast);
+        }
+
+        .ai-refresh:hover {
+            opacity: 1;
+            transform: rotate(180deg);
+        }
+
+        .ai-refresh i {
+            font-size: 0.75rem;
+            color: var(--booking-blue);
+        }
+
         .ai-suggestion-content {
-            font-size: 0.6875rem;
+            font-size: 0.75rem;
             color: var(--booking-text);
-            line-height: 1.4;
-            margin-bottom: 8px;
+            line-height: 1.5;
+            margin-bottom: 10px;
+            min-height: 50px;
+        }
+
+        .ai-loading {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--booking-text-light);
+            font-size: 0.6875rem;
+        }
+
+        .ai-loading i {
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            from {
+                transform: rotate(0deg);
+            }
+
+            to {
+                transform: rotate(360deg);
+            }
         }
 
         .ai-suggestion-action {
@@ -420,11 +459,34 @@ $admin = $stmt->fetch();
             display: inline-flex;
             align-items: center;
             gap: 4px;
-            font-weight: 500;
+            font-weight: 600;
         }
 
         .ai-suggestion-action:hover {
             text-decoration: underline;
+        }
+
+        .ai-timestamp {
+            font-size: 0.5625rem;
+            color: var(--booking-text-lighter);
+            margin-top: 8px;
+            text-align: right;
+        }
+
+        /* Insight types styling */
+        .ai-insight-high {
+            border-left: 3px solid var(--booking-success);
+            padding-left: 8px;
+        }
+
+        .ai-insight-medium {
+            border-left: 3px solid var(--booking-warning);
+            padding-left: 8px;
+        }
+
+        .ai-insight-info {
+            border-left: 3px solid var(--booking-blue);
+            padding-left: 8px;
         }
 
         /* ===== MAIN CONTENT ===== */
@@ -499,7 +561,11 @@ $admin = $stmt->fetch();
             font-size: 0.75rem;
         }
 
-        /* Notification Icon */
+        /* Notification Dropdown */
+        .notification-dropdown {
+            position: relative;
+        }
+
         .notification-icon {
             position: relative;
             cursor: pointer;
@@ -533,6 +599,170 @@ $admin = $stmt->fetch();
             border-radius: 10px;
             min-width: 16px;
             text-align: center;
+        }
+
+        .notification-panel {
+            position: absolute;
+            top: 100%;
+            right: 0;
+            width: 380px;
+            background: var(--booking-white);
+            border-radius: var(--radius-md);
+            box-shadow: var(--shadow-lg);
+            border: 1px solid var(--booking-border);
+            z-index: 1000;
+            display: none;
+            margin-top: 8px;
+            overflow: hidden;
+        }
+
+        .notification-panel.show {
+            display: block;
+            animation: fadeIn 0.2s ease;
+        }
+
+        .notification-header {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--booking-border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--booking-gray-light);
+        }
+
+        .notification-header h4 {
+            font-size: 0.8125rem;
+            font-weight: 700;
+            margin: 0;
+        }
+
+        .mark-all-read {
+            background: none;
+            border: none;
+            font-size: 0.625rem;
+            color: var(--booking-blue);
+            cursor: pointer;
+        }
+
+        .notification-list {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .notification-item {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--booking-border);
+            display: flex;
+            gap: 12px;
+            transition: background var(--transition-fast);
+            cursor: pointer;
+        }
+
+        .notification-item:hover {
+            background: var(--booking-gray-light);
+        }
+
+        .notification-item.unread {
+            background: rgba(0, 102, 255, 0.03);
+        }
+
+        .notification-item.unread .notification-title {
+            font-weight: 700;
+        }
+
+        .notification-icon-type {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: rgba(0, 102, 255, 0.1);
+            color: var(--booking-blue);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.875rem;
+            flex-shrink: 0;
+        }
+
+        .notification-content {
+            flex: 1;
+        }
+
+        .notification-title {
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin-bottom: 2px;
+        }
+
+        .notification-message {
+            font-size: 0.6875rem;
+            color: var(--booking-text-light);
+            margin-bottom: 4px;
+        }
+
+        .notification-time {
+            font-size: 0.5625rem;
+            color: var(--booking-text-lighter);
+        }
+
+        .notification-actions {
+            display: flex;
+            gap: 4px;
+            align-items: flex-start;
+        }
+
+        .notif-action {
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 4px;
+            border-radius: 4px;
+            color: var(--booking-text-lighter);
+            transition: all var(--transition-fast);
+        }
+
+        .notif-action:hover {
+            background: var(--booking-gray-light);
+            color: var(--booking-blue);
+        }
+
+        .notification-empty {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--booking-text-light);
+        }
+
+        .notification-empty i {
+            font-size: 2rem;
+            margin-bottom: 12px;
+            color: var(--booking-text-lighter);
+        }
+
+        .notification-footer {
+            padding: 10px 16px;
+            border-top: 1px solid var(--booking-border);
+            text-align: center;
+        }
+
+        .notification-footer a {
+            font-size: 0.6875rem;
+            color: var(--booking-blue);
+            text-decoration: none;
+        }
+
+        .notification-footer a:hover {
+            text-decoration: underline;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
 
         /* Profile Dropdown */
@@ -598,18 +828,6 @@ $admin = $stmt->fetch();
         .profile-dropdown:hover .dropdown-menu-custom {
             display: block;
             animation: fadeIn 0.2s ease;
-        }
-
-        @keyframes fadeIn {
-            from {
-                opacity: 0;
-                transform: translateY(-10px);
-            }
-
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
         }
 
         .dropdown-item-custom {
@@ -765,7 +983,7 @@ $admin = $stmt->fetch();
                 </div>
             </div>
 
-            <!-- AI Suggestion Card - Dynamic with Real Data -->
+            <!-- AI Suggestion Card -->
             <div class="ai-suggestion-card" id="aiSuggestionCard">
                 <div class="ai-suggestion-header">
                     <i class="bi bi-stars"></i>
@@ -784,206 +1002,6 @@ $admin = $stmt->fetch();
                 </a>
                 <div class="ai-timestamp" id="aiTimestamp"></div>
             </div>
-
-            <style>
-                /* Enhanced AI Suggestion Card */
-                .ai-suggestion-card {
-                    position: relative;
-                    margin: 16px 12px;
-                    padding: 14px;
-                    background: linear-gradient(135deg, #f0f9ff 0%, #e6f4ea 100%);
-                    border-radius: var(--radius-md);
-                    border: 1px solid rgba(0, 102, 255, 0.2);
-                    transition: all var(--transition-fast);
-                }
-
-                .ai-suggestion-header {
-                    display: flex;
-                    align-items: center;
-                    gap: 8px;
-                    margin-bottom: 10px;
-                }
-
-                .ai-suggestion-header i:first-child {
-                    font-size: 1.125rem;
-                    color: var(--booking-blue);
-                }
-
-                .ai-suggestion-header span {
-                    font-weight: 600;
-                    font-size: 0.75rem;
-                    color: var(--booking-blue);
-                    text-transform: uppercase;
-                    letter-spacing: 0.5px;
-                }
-
-                .ai-refresh {
-                    margin-left: auto;
-                    cursor: pointer;
-                    opacity: 0.6;
-                    transition: all var(--transition-fast);
-                }
-
-                .ai-refresh:hover {
-                    opacity: 1;
-                    transform: rotate(180deg);
-                }
-
-                .ai-refresh i {
-                    font-size: 0.75rem;
-                    color: var(--booking-blue);
-                }
-
-                .ai-suggestion-content {
-                    font-size: 0.75rem;
-                    color: var(--booking-text);
-                    line-height: 1.5;
-                    margin-bottom: 10px;
-                    min-height: 50px;
-                }
-
-                .ai-loading {
-                    display: flex;
-                    align-items: center;
-                    gap: 8px;
-                    color: var(--booking-text-light);
-                    font-size: 0.6875rem;
-                }
-
-                .ai-loading i {
-                    animation: spin 1s linear infinite;
-                }
-
-                @keyframes spin {
-                    from {
-                        transform: rotate(0deg);
-                    }
-
-                    to {
-                        transform: rotate(360deg);
-                    }
-                }
-
-                .ai-suggestion-action {
-                    font-size: 0.625rem;
-                    color: var(--booking-blue);
-                    text-decoration: none;
-                    display: inline-flex;
-                    align-items: center;
-                    gap: 4px;
-                    font-weight: 600;
-                }
-
-                .ai-suggestion-action:hover {
-                    text-decoration: underline;
-                }
-
-                .ai-timestamp {
-                    font-size: 0.5625rem;
-                    color: var(--booking-text-lighter);
-                    margin-top: 8px;
-                    text-align: right;
-                }
-
-                /* Insight types styling */
-                .ai-insight-high {
-                    border-left: 3px solid var(--booking-success);
-                }
-
-                .ai-insight-medium {
-                    border-left: 3px solid var(--booking-warning);
-                }
-
-                .ai-insight-info {
-                    border-left: 3px solid var(--booking-blue);
-                }
-            </style>
-
-            <script>
-                // AI Insights - Dynamic loading from database
-                let currentInsights = [];
-                let insightIndex = 0;
-                let insightInterval;
-
-                function loadAIInsights() {
-                    const contentDiv = document.getElementById('aiSuggestionContent');
-                    const actionLink = document.getElementById('aiSuggestionAction');
-                    const timestampDiv = document.getElementById('aiTimestamp');
-
-                    // Show loading state
-                    contentDiv.innerHTML = '<div class="ai-loading"><i class="bi bi-hourglass-split"></i> Analyzing platform data...</div>';
-
-                    // Fetch insights from backend
-                    fetch('includes/ai_insights.php?ajax=1')
-                        .then(response => response.json())
-                        .then(data => {
-                            currentInsights = data;
-                            insightIndex = 0;
-
-                            if (currentInsights.length === 0) {
-                                contentDiv.innerHTML = '<div class="ai-loading"><i class="bi bi-check-circle"></i> All systems operational. No insights at this time.</div>';
-                                actionLink.style.display = 'none';
-                                timestampDiv.innerHTML = '';
-                                return;
-                            }
-
-                            actionLink.style.display = 'inline-flex';
-                            showNextInsight();
-
-                            // Rotate insights every 15 seconds
-                            if (insightInterval) clearInterval(insightInterval);
-                            insightInterval = setInterval(showNextInsight, 15000);
-
-                            // Update timestamp
-                            timestampDiv.innerHTML = '<i class="bi bi-clock"></i> Updated ' + new Date().toLocaleTimeString();
-                        })
-                        .catch(error => {
-                            console.error('Error loading insights:', error);
-                            contentDiv.innerHTML = '<div class="ai-loading"><i class="bi bi-exclamation-triangle"></i> Unable to load insights. Please refresh.</div>';
-                            actionLink.style.display = 'none';
-                        });
-                }
-
-                function showNextInsight() {
-                    if (currentInsights.length === 0) return;
-
-                    const insight = currentInsights[insightIndex % currentInsights.length];
-                    const contentDiv = document.getElementById('aiSuggestionContent');
-                    const actionLink = document.getElementById('aiSuggestionAction');
-
-                    // Add type-based styling
-                    let priorityClass = '';
-                    if (insight.priority === 1) priorityClass = 'ai-insight-high';
-                    else if (insight.priority === 2) priorityClass = 'ai-insight-medium';
-                    else priorityClass = 'ai-insight-info';
-
-                    contentDiv.innerHTML = `<div class="${priorityClass}" style="padding-left: 8px;">${insight.content}</div>`;
-                    actionLink.href = insight.action_link;
-                    actionLink.innerHTML = `${insight.action_text} <i class="bi bi-arrow-right"></i>`;
-
-                    // Change header icon based on insight type
-                    const headerIcon = document.querySelector('.ai-suggestion-header i:first-child');
-                    if (headerIcon) {
-                        headerIcon.className = `bi bi-${insight.icon}`;
-                    }
-
-                    insightIndex++;
-                }
-
-                function refreshAIInsights() {
-                    loadAIInsights();
-                }
-
-                // Load insights when page loads
-                document.addEventListener('DOMContentLoaded', function() {
-                    loadAIInsights();
-                });
-
-                // Optional: Auto-refresh every 5 minutes
-                setInterval(function() {
-                    refreshAIInsights();
-                }, 300000); // 5 minutes
-            </script>
 
             <nav class="sidebar-nav">
                 <!-- Main -->
@@ -1177,11 +1195,58 @@ $admin = $stmt->fetch();
                         <input type="text" placeholder="Search..." id="globalSearch">
                     </div>
 
-                    <div class="notification-icon" onclick="toggleNotifications()">
-                        <i class="bi bi-bell"></i>
-                        <?php if ($unreadNotifications > 0): ?>
-                            <span class="notification-badge"><?php echo $unreadNotifications > 9 ? '9+' : $unreadNotifications; ?></span>
-                        <?php endif; ?>
+                    <!-- Notification Dropdown -->
+                    <div class="notification-dropdown" id="notificationDropdown">
+                        <div class="notification-icon" onclick="toggleNotificationPanel()">
+                            <i class="bi bi-bell"></i>
+                            <?php if ($unreadNotifications > 0): ?>
+                                <span class="notification-badge"><?php echo $unreadNotifications > 9 ? '9+' : $unreadNotifications; ?></span>
+                            <?php endif; ?>
+                        </div>
+
+                        <div class="notification-panel" id="notificationPanel">
+                            <div class="notification-header">
+                                <h4>Notifications</h4>
+                                <?php if ($unreadNotifications > 0): ?>
+                                    <button class="mark-all-read" onclick="markAllAsRead()">Mark all as read</button>
+                                <?php endif; ?>
+                            </div>
+
+                            <div class="notification-list" id="notificationList">
+                                <?php if (empty($recentNotifications)): ?>
+                                    <div class="notification-empty">
+                                        <i class="bi bi-bell-slash"></i>
+                                        <p>No notifications yet</p>
+                                    </div>
+                                <?php else: ?>
+                                    <?php foreach ($recentNotifications as $notif): ?>
+                                        <div class="notification-item <?php echo $notif['is_read'] ? 'read' : 'unread'; ?>"
+                                            data-id="<?php echo $notif['notification_id']; ?>">
+                                            <div class="notification-icon-type">
+                                                <i class="bi bi-<?php echo getNotificationIcon($notif['type']); ?>"></i>
+                                            </div>
+                                            <div class="notification-content">
+                                                <div class="notification-title"><?php echo htmlspecialchars($notif['title']); ?></div>
+                                                <div class="notification-message"><?php echo htmlspecialchars($notif['message']); ?></div>
+                                                <div class="notification-time"><?php echo timeAgo($notif['created_at']); ?></div>
+                                            </div>
+                                            <div class="notification-actions">
+                                                <button class="notif-action" onclick="markAsRead(<?php echo $notif['notification_id']; ?>)">
+                                                    <i class="bi bi-check"></i>
+                                                </button>
+                                                <button class="notif-action" onclick="deleteNotification(<?php echo $notif['notification_id']; ?>)">
+                                                    <i class="bi bi-x"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    <?php endforeach; ?>
+                                <?php endif; ?>
+                            </div>
+
+                            <div class="notification-footer">
+                                <a href="notifications.php">View all notifications</a>
+                            </div>
+                        </div>
                     </div>
 
                     <div class="profile-dropdown">
@@ -1214,3 +1279,410 @@ $admin = $stmt->fetch();
                     </div>
                 </div>
             </div>
+            <script>
+                // ============================================
+                // SIDEBAR TOGGLE
+                // ============================================
+                function toggleSidebar() {
+                    document.getElementById('adminSidebar').classList.toggle('open');
+                }
+
+                // Close sidebar when clicking outside on mobile
+                document.addEventListener('click', function(event) {
+                    const sidebar = document.getElementById('adminSidebar');
+                    const toggle = document.getElementById('menuToggle');
+
+                    if (window.innerWidth <= 992 &&
+                        !sidebar.contains(event.target) &&
+                        !toggle.contains(event.target) &&
+                        sidebar.classList.contains('open')) {
+                        sidebar.classList.remove('open');
+                    }
+                });
+
+                // ============================================
+                // AI INSIGHTS - DYNAMIC FROM DATABASE
+                // ============================================
+                let currentInsights = [];
+                let insightIndex = 0;
+                let insightInterval;
+
+                function loadAIInsights() {
+                    const contentDiv = document.getElementById('aiSuggestionContent');
+                    const actionLink = document.getElementById('aiSuggestionAction');
+                    const timestampDiv = document.getElementById('aiTimestamp');
+
+                    if (!contentDiv) return;
+
+                    // Show loading state
+                    contentDiv.innerHTML = '<div class="ai-loading"><i class="bi bi-hourglass-split"></i> Analyzing platform data...</div>';
+
+                    // Fetch insights from backend
+                    fetch('/gorwanda-plus/admin/includes/ai_insights.php?ajax=1')
+                        .then(response => response.json())
+                        .then(data => {
+                            currentInsights = data;
+                            insightIndex = 0;
+
+                            if (currentInsights.length === 0) {
+                                contentDiv.innerHTML = '<div class="ai-loading"><i class="bi bi-check-circle"></i> All systems operational. No insights at this time.</div>';
+                                if (actionLink) actionLink.style.display = 'none';
+                                if (timestampDiv) timestampDiv.innerHTML = '';
+                                return;
+                            }
+
+                            if (actionLink) actionLink.style.display = 'inline-flex';
+                            showNextInsight();
+
+                            // Rotate insights every 15 seconds
+                            if (insightInterval) clearInterval(insightInterval);
+                            insightInterval = setInterval(showNextInsight, 15000);
+
+                            // Update timestamp
+                            if (timestampDiv) {
+                                timestampDiv.innerHTML = '<i class="bi bi-clock"></i> Updated ' + new Date().toLocaleTimeString();
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error loading insights:', error);
+                            contentDiv.innerHTML = '<div class="ai-loading"><i class="bi bi-exclamation-triangle"></i> Unable to load insights. Please refresh.</div>';
+                            if (actionLink) actionLink.style.display = 'none';
+                        });
+                }
+
+                function showNextInsight() {
+                    if (currentInsights.length === 0) return;
+
+                    const insight = currentInsights[insightIndex % currentInsights.length];
+                    const contentDiv = document.getElementById('aiSuggestionContent');
+                    const actionLink = document.getElementById('aiSuggestionAction');
+
+                    if (!contentDiv) return;
+
+                    // Add type-based styling
+                    let priorityClass = '';
+                    if (insight.priority === 1) priorityClass = 'ai-insight-high';
+                    else if (insight.priority === 2) priorityClass = 'ai-insight-medium';
+                    else priorityClass = 'ai-insight-info';
+
+                    contentDiv.innerHTML = `<div class="${priorityClass}" style="padding-left: 8px;">${insight.content}</div>`;
+                    if (actionLink) {
+                        actionLink.href = insight.action_link;
+                        actionLink.innerHTML = `${insight.action_text} <i class="bi bi-arrow-right"></i>`;
+                    }
+
+                    // Change header icon based on insight type
+                    const headerIcon = document.querySelector('.ai-suggestion-header i:first-child');
+                    if (headerIcon) {
+                        headerIcon.className = `bi bi-${insight.icon}`;
+                    }
+
+                    insightIndex++;
+                }
+
+                function refreshAIInsights() {
+                    loadAIInsights();
+                }
+
+                // ============================================
+                // NOTIFICATION SYSTEM
+                // ============================================
+                let notificationInterval;
+
+                function toggleNotificationPanel() {
+                    const panel = document.getElementById('notificationPanel');
+                    if (!panel) return;
+                    panel.classList.toggle('show');
+
+                    if (panel.classList.contains('show')) {
+                        // Mark notifications as seen when opened
+                        markNotificationsAsSeen();
+                    }
+                }
+
+                function markNotificationsAsSeen() {
+                    fetch('/gorwanda-plus/admin/ajax/mark-notifications-seen.php', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        }
+                    }).catch(console.error);
+                }
+
+                function markAsRead(notificationId) {
+                    fetch('/gorwanda-plus/admin/ajax/mark-notification-read.php', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            notification_id: notificationId
+                        })
+                    }).then(() => {
+                        const item = document.querySelector(`.notification-item[data-id="${notificationId}"]`);
+                        if (item) {
+                            item.classList.remove('unread');
+                            item.classList.add('read');
+                        }
+                        updateUnreadCount();
+                    }).catch(console.error);
+                }
+
+                function markAllAsRead() {
+                    fetch('/gorwanda-plus/admin/ajax/mark-all-read.php', {
+                        method: 'POST'
+                    }).then(() => {
+                        document.querySelectorAll('.notification-item.unread').forEach(item => {
+                            item.classList.remove('unread');
+                            item.classList.add('read');
+                        });
+                        updateUnreadCount();
+                    }).catch(console.error);
+                }
+
+                function deleteNotification(notificationId) {
+                    if (confirm('Delete this notification?')) {
+                        fetch('/gorwanda-plus/admin/ajax/delete-notification.php', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                notification_id: notificationId
+                            })
+                        }).then(() => {
+                            const item = document.querySelector(`.notification-item[data-id="${notificationId}"]`);
+                            if (item) item.remove();
+                            updateUnreadCount();
+                        }).catch(console.error);
+                    }
+                }
+
+                function updateUnreadCount() {
+                    const unreadCount = document.querySelectorAll('.notification-item.unread').length;
+                    const badge = document.querySelector('.notification-badge');
+                    if (badge) {
+                        if (unreadCount > 0) {
+                            badge.textContent = unreadCount > 9 ? '9+' : unreadCount;
+                            badge.style.display = 'inline-block';
+                        } else {
+                            badge.style.display = 'none';
+                        }
+                    }
+                }
+
+                function getNotificationIcon(type) {
+                    const icons = {
+                        'new_booking': 'calendar-check',
+                        'booking_cancelled': 'calendar-x',
+                        'payment_received': 'credit-card',
+                        'vendor_registration': 'building',
+                        'verification_pending': 'shield-check',
+                        'low_inventory': 'exclamation-triangle',
+                        'new_review': 'star',
+                        'system_alert': 'gear',
+                        'daily_summary': 'graph-up',
+                        'payout_processed': 'wallet2'
+                    };
+                    return icons[type] || 'bell';
+                }
+
+                function startNotificationRefresh() {
+                    if (notificationInterval) clearInterval(notificationInterval);
+                    notificationInterval = setInterval(() => {
+                        fetch('/gorwanda-plus/admin/ajax/get-notifications.php')
+                            .then(response => response.json())
+                            .then(data => {
+                                if (data.unread_count > 0) {
+                                    const badge = document.querySelector('.notification-badge');
+                                    if (badge) {
+                                        badge.textContent = data.unread_count > 9 ? '9+' : data.unread_count;
+                                        badge.style.display = 'inline-block';
+                                    }
+                                }
+                            })
+                            .catch(console.error);
+                    }, 30000);
+                }
+
+                // ============================================
+                // GLOBAL SEARCH
+                // ============================================
+                document.getElementById('globalSearch')?.addEventListener('keyup', function(e) {
+                    if (e.key === 'Enter') {
+                        const searchTerm = this.value;
+                        if (searchTerm) {
+                            window.location.href = 'search.php?q=' + encodeURIComponent(searchTerm);
+                        }
+                    }
+                });
+
+                // ============================================
+                // NOTIFICATIONS TOGGLE
+                // ============================================
+                function toggleNotifications() {
+                    toggleNotificationPanel();
+                }
+
+                // ============================================
+                // DARK MODE TOGGLE (Optional)
+                // ============================================
+                function toggleDarkMode() {
+                    document.body.classList.toggle('dark-mode');
+                    localStorage.setItem('darkMode', document.body.classList.contains('dark-mode'));
+                }
+
+                // Check for saved dark mode preference
+                if (localStorage.getItem('darkMode') === 'true') {
+                    document.body.classList.add('dark-mode');
+                }
+
+                // ============================================
+                // CHART FORMATTING
+                // ============================================
+                function formatCurrency(amount) {
+                    return 'RWF ' + new Intl.NumberFormat('rw-RW').format(Math.round(amount));
+                }
+
+                function formatNumber(num) {
+                    return new Intl.NumberFormat().format(num);
+                }
+
+                // ============================================
+                // TIME AGO
+                // ============================================
+                function timeAgo(timestamp) {
+                    const now = new Date();
+                    const past = new Date(timestamp);
+                    const seconds = Math.floor((now - past) / 1000);
+
+                    const intervals = {
+                        year: 31536000,
+                        month: 2592000,
+                        week: 604800,
+                        day: 86400,
+                        hour: 3600,
+                        minute: 60
+                    };
+
+                    for (const [unit, secondsInUnit] of Object.entries(intervals)) {
+                        const interval = Math.floor(seconds / secondsInUnit);
+                        if (interval >= 1) {
+                            return interval + ' ' + unit + (interval === 1 ? '' : 's') + ' ago';
+                        }
+                    }
+                    return 'just now';
+                }
+
+                // ============================================
+                // EXPORT DATA
+                // ============================================
+                function exportData(data, filename = 'export.csv') {
+                    const blob = new Blob([data], {
+                        type: 'text/csv'
+                    });
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = filename;
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                }
+
+                // ============================================
+                // SHOW NOTIFICATION
+                // ============================================
+                function showNotification(message, type = 'success') {
+                    const notification = document.createElement('div');
+                    notification.className = `notification-toast notification-${type}`;
+                    notification.style.cssText = `
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        z-index: 10000;
+        padding: 12px 20px;
+        background: ${type === 'success' ? '#e6f4ea' : type === 'error' ? '#fce8e8' : '#fff4e6'};
+        color: ${type === 'success' ? '#008009' : type === 'error' ? '#e21111' : '#ff8c00'};
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        font-size: 0.8125rem;
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        animation: slideIn 0.3s ease;
+        border-left: 4px solid ${type === 'success' ? '#008009' : type === 'error' ? '#e21111' : '#ff8c00'};
+        z-index: 99999;
+    `;
+                    notification.innerHTML = `
+        <i class="bi bi-${type === 'success' ? 'check-circle-fill' : type === 'error' ? 'exclamation-triangle-fill' : 'info-circle-fill'}"></i>
+        <span>${message}</span>
+        <button onclick="this.parentElement.remove()" style="margin-left: auto; background: none; border: none; color: inherit; cursor: pointer;"><i class="bi bi-x"></i></button>
+    `;
+                    document.body.appendChild(notification);
+
+                    setTimeout(() => {
+                        notification.style.animation = 'slideOut 0.3s ease';
+                        setTimeout(() => notification.remove(), 300);
+                    }, 5000);
+                }
+
+                // Add animations
+                const style = document.createElement('style');
+                style.textContent = `
+    @keyframes slideIn {
+        from { transform: translateX(100%); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
+    }
+    @keyframes slideOut {
+        from { transform: translateX(0); opacity: 1; }
+        to { transform: translateX(100%); opacity: 0; }
+    }
+    
+    /* Dark Mode Styles */
+    body.dark-mode {
+        --booking-white: #1a1a1a;
+        --booking-gray-light: #2d2d2d;
+        --booking-gray: #333333;
+        --booking-border: #404040;
+        --booking-text: #e5e5e5;
+        --booking-text-light: #a0a0a0;
+        --booking-text-lighter: #808080;
+    }
+    
+    /* Close panel when clicking outside */
+    .notification-panel.show {
+        display: block !important;
+    }
+`;
+
+                // ============================================
+                // INITIALIZE ALL ON PAGE LOAD
+                // ============================================
+                document.addEventListener('DOMContentLoaded', function() {
+                    // Load AI Insights
+                    loadAIInsights();
+
+                    // Start notification refresh
+                    startNotificationRefresh();
+
+                    // Close notification panel when clicking outside
+                    document.addEventListener('click', function(e) {
+                        const panel = document.getElementById('notificationPanel');
+                        const icon = document.querySelector('.notification-icon');
+                        if (panel && icon && !icon.contains(e.target) && !panel.contains(e.target)) {
+                            panel.classList.remove('show');
+                        }
+                    });
+                });
+
+                // Clear intervals when leaving page
+                window.addEventListener('beforeunload', function() {
+                    if (insightInterval) {
+                        clearInterval(insightInterval);
+                    }
+                    if (notificationInterval) {
+                        clearInterval(notificationInterval);
+                    }
+                });
+            </script>

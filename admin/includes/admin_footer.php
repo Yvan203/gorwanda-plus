@@ -170,6 +170,13 @@
         }
     `;
             document.head.appendChild(style);
+
+            // Clear notification interval when leaving page
+            window.addEventListener('beforeunload', function() {
+                if (notificationInterval) {
+                    clearInterval(notificationInterval);
+                }
+            });
         </script>
 
         <!-- Bootstrap JS -->

@@ -1,4 +1,5 @@
 <?php
+
 /**
  * GoRwanda+ Helper Functions
  * File: includes/functions.php
@@ -18,20 +19,21 @@ require_once 'db.php';
 /**
  * Get current language from session, cookie, or browser
  */
-function getCurrentLanguage() {
+function getCurrentLanguage()
+{
     $validLangs = ['en', 'fr', 'rw', 'sw'];
 
     // Check session first
     if (isset($_SESSION['language']) && in_array($_SESSION['language'], $validLangs, true)) {
         return $_SESSION['language'];
     }
-    
+
     // Check cookie
     if (isset($_COOKIE['user_language']) && in_array($_COOKIE['user_language'], $validLangs, true)) {
         $_SESSION['language'] = $_COOKIE['user_language'];
         return $_COOKIE['user_language'];
     }
-    
+
     // Detect from browser
     if (isset($_SERVER['HTTP_ACCEPT_LANGUAGE'])) {
         $browserLang = substr($_SERVER['HTTP_ACCEPT_LANGUAGE'], 0, 2);
@@ -40,13 +42,14 @@ function getCurrentLanguage() {
             return $browserLang;
         }
     }
-    
+
     // Default to English
     $_SESSION['language'] = 'en';
     return 'en';
 }
 
-function setCurrentLanguage($language) {
+function setCurrentLanguage($language)
+{
     $validLangs = ['en', 'fr', 'rw', 'sw'];
     $language = in_array($language, $validLangs, true) ? $language : 'en';
 
@@ -66,26 +69,28 @@ function setCurrentLanguage($language) {
 /**
  * Get current currency from session or cookie
  */
-function getCurrentCurrency() {
+function getCurrentCurrency()
+{
     $validCurrencies = ['RWF', 'USD', 'EUR', 'GBP', 'KES', 'UGX', 'TZS'];
 
     // Check session first
     if (isset($_SESSION['currency']) && in_array($_SESSION['currency'], $validCurrencies, true)) {
         return $_SESSION['currency'];
     }
-    
+
     // Check cookie
     if (isset($_COOKIE['user_currency']) && in_array($_COOKIE['user_currency'], $validCurrencies, true)) {
         $_SESSION['currency'] = $_COOKIE['user_currency'];
         return $_COOKIE['user_currency'];
     }
-    
+
     // Default to RWF
     $_SESSION['currency'] = 'RWF';
     return 'RWF';
 }
 
-function setCurrentCurrency($currency) {
+function setCurrentCurrency($currency)
+{
     $validCurrencies = ['RWF', 'USD', 'EUR', 'GBP', 'KES', 'UGX', 'TZS'];
     $currency = in_array($currency, $validCurrencies, true) ? $currency : 'RWF';
 
@@ -102,7 +107,8 @@ function setCurrentCurrency($currency) {
     ]);
 }
 
-function getCurrentRequestPath() {
+function getCurrentRequestPath()
+{
     if (!empty($_SERVER['REQUEST_URI'])) {
         return $_SERVER['REQUEST_URI'];
     }
@@ -114,7 +120,8 @@ function getCurrentRequestPath() {
     return '/gorwanda-plus/';
 }
 
-function sanitizeLocalRedirect($redirect, $default = '/gorwanda-plus/') {
+function sanitizeLocalRedirect($redirect, $default = '/gorwanda-plus/')
+{
     if (!is_string($redirect) || $redirect === '') {
         return $default;
     }
@@ -780,7 +787,8 @@ foreach ($translationExtras as $langCode => $extraValues) {
 // Get translations for current language
 $t = $translations[$currentLang] ?? $translations['en'];
 
-function tr($key, $default = null, $replacements = []) {
+function tr($key, $default = null, $replacements = [])
+{
     global $t;
 
     $text = $t[$key] ?? $default ?? $key;
@@ -799,7 +807,8 @@ function tr($key, $default = null, $replacements = []) {
 /**
  * Get current exchange rates (can be cached or fetched from API)
  */
-function getExchangeRates() {
+function getExchangeRates()
+{
     // Base currency is RWF
     $rates = [
         'RWF' => 1,
@@ -810,29 +819,30 @@ function getExchangeRates() {
         'UGX' => 2.85,
         'TZS' => 2.00
     ];
-    
+
     // Check if we have cached rates in database
     $db = getDB();
     $stmt = $db->query("SELECT * FROM exchange_rates WHERE date = CURDATE()");
     $cachedRates = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    
+
     if (!empty($cachedRates)) {
         foreach ($cachedRates as $rate) {
             $rates[$rate['currency_code']] = $rate['rate_to_rwf'];
         }
     }
-    
+
     return $rates;
 }
 
 /**
  * Get currency symbol
  */
-function getCurrencySymbol($currency = null) {
+function getCurrencySymbol($currency = null)
+{
     if ($currency === null) {
         $currency = getCurrentCurrency();
     }
-    
+
     $symbols = [
         'RWF' => 'FRw',
         'USD' => '$',
@@ -842,24 +852,25 @@ function getCurrencySymbol($currency = null) {
         'UGX' => 'USh',
         'TZS' => 'TSh'
     ];
-    
+
     return $symbols[$currency] ?? 'FRw';
 }
 
 /**
  * Format price with proper currency conversion
  */
-function formatPrice($amount, $currency = null, $decimal = false) {
+function formatPrice($amount, $currency = null, $decimal = false)
+{
     if ($currency === null) {
         $currency = getCurrentCurrency();
     }
-    
+
     $rates = getExchangeRates();
     $rate = $rates[$currency] ?? 1;
     $symbol = getCurrencySymbol($currency);
-    
+
     $converted = $amount * $rate;
-    
+
     // Format based on currency type
     if ($currency === 'RWF' || in_array($currency, ['KES', 'UGX', 'TZS'])) {
         return $symbol . ' ' . number_format($converted, 0);
@@ -872,25 +883,29 @@ function formatPrice($amount, $currency = null, $decimal = false) {
 // SECURITY FUNCTIONS
 // ============================================
 
-function sanitize($data) {
+function sanitize($data)
+{
     if ($data === null || $data === '') {
         return '';
     }
     return htmlspecialchars(strip_tags(trim($data)), ENT_QUOTES, 'UTF-8');
 }
 
-function generateToken() {
+function generateToken()
+{
     return bin2hex(random_bytes(32));
 }
 
-function csrfToken() {
+function csrfToken()
+{
     if (empty($_SESSION['csrf_token'])) {
         $_SESSION['csrf_token'] = generateToken();
     }
     return $_SESSION['csrf_token'];
 }
 
-function verifyCsrf($token) {
+function verifyCsrf($token)
+{
     return isset($_SESSION['csrf_token']) && hash_equals($_SESSION['csrf_token'], $token);
 }
 
@@ -898,24 +913,27 @@ function verifyCsrf($token) {
 // FORMATTING FUNCTIONS
 // ============================================
 
-function formatDate($date, $format = 'd M Y') {
+function formatDate($date, $format = 'd M Y')
+{
     return date($format, strtotime($date));
 }
 
-function formatRating($rating) {
+function formatRating($rating)
+{
     $fullStars = floor($rating / 2);
     $halfStar = ($rating % 2) >= 1 ? 1 : 0;
     $emptyStars = 5 - $fullStars - $halfStar;
-    
+
     $html = '';
     for ($i = 0; $i < $fullStars; $i++) $html .= '<i class="fas fa-star text-warning"></i>';
     if ($halfStar) $html .= '<i class="fas fa-star-half-alt text-warning"></i>';
     for ($i = 0; $i < $emptyStars; $i++) $html .= '<i class="far fa-star text-warning"></i>';
-    
+
     return $html;
 }
 
-function getReviewLabel($rating) {
+function getReviewLabel($rating)
+{
     if ($rating >= 9) return [tr('exceptional'), 'bg-success'];
     if ($rating >= 8) return [tr('excellent'), 'bg-success'];
     if ($rating >= 7) return [tr('very_good'), 'bg-success'];
@@ -929,7 +947,8 @@ function getReviewLabel($rating) {
 // BOOKING REFERENCE GENERATOR
 // ============================================
 
-function generateBookingRef() {
+function generateBookingRef()
+{
     $prefix = 'GRW';
     $year = date('Y');
     $random = strtoupper(substr(uniqid(), -5));
@@ -940,19 +959,23 @@ function generateBookingRef() {
 // USER AUTHENTICATION
 // ============================================
 
-function isLoggedIn() {
+function isLoggedIn()
+{
     return isset($_SESSION['user_id']);
 }
 
-function isAdmin() {
+function isAdmin()
+{
     return isset($_SESSION['user_type']) && $_SESSION['user_type'] === 'admin';
 }
 
-function isBusinessOwner() {
+function isBusinessOwner()
+{
     return isset($_SESSION['user_type']) && $_SESSION['user_type'] === 'business_owner';
 }
 
-function requireLogin() {
+function requireLogin()
+{
     if (!isLoggedIn()) {
         $_SESSION['redirect_after_login'] = $_SERVER['REQUEST_URI'];
         header('Location: /gorwanda-plus/login.php');
@@ -960,9 +983,10 @@ function requireLogin() {
     }
 }
 
-function getCurrentUser() {
+function getCurrentUser()
+{
     if (!isLoggedIn()) return null;
-    
+
     $stmt = getDB()->prepare("SELECT * FROM users WHERE user_id = ?");
     $stmt->execute([$_SESSION['user_id']]);
     return $stmt->fetch();
@@ -972,24 +996,25 @@ function getCurrentUser() {
 // SEARCH & AVAILABILITY FUNCTIONS
 // ============================================
 
-function searchStays($location, $checkIn, $checkOut, $guests = 2, $limit = 20) {
+function searchStays($location, $checkIn, $checkOut, $guests = 2, $limit = 20)
+{
     $db = getDB();
-    
+
     $sql = "SELECT s.*, l.name as location_name,
             (SELECT MIN(base_price) FROM stay_rooms WHERE stay_id = s.stay_id AND is_active = 1) as min_price,
             (SELECT MAX(base_price) FROM stay_rooms WHERE stay_id = s.stay_id AND is_active = 1) as max_price
             FROM stays s
             LEFT JOIN locations l ON s.location_id = l.location_id
             WHERE s.is_active = 1 AND s.is_verified = 1";
-    
+
     $params = [];
-    
+
     if ($location) {
         $sql .= " AND (s.stay_name LIKE ? OR l.name LIKE ? OR s.address LIKE ?)";
         $like = "%{$location}%";
         $params = array_merge($params, [$like, $like, $like]);
     }
-    
+
     if ($checkIn && $checkOut) {
         $nights = (strtotime($checkOut) - strtotime($checkIn)) / 86400;
         $sql .= " AND s.stay_id IN (
@@ -1005,32 +1030,33 @@ function searchStays($location, $checkIn, $checkOut, $guests = 2, $limit = 20) {
         )";
         $params = array_merge($params, [$checkIn, $checkOut]);
     }
-    
+
     $sql .= " ORDER BY s.avg_rating DESC, s.review_count DESC LIMIT " . (int)$limit;
-    
+
     $stmt = $db->prepare($sql);
     $stmt->execute($params);
     return $stmt->fetchAll();
 }
 
-function searchCars($location, $pickupDate, $returnDate, $limit = 20) {
+function searchCars($location, $pickupDate, $returnDate, $limit = 20)
+{
     $db = getDB();
-    
+
     $sql = "SELECT cf.*, cr.company_name, cr.pickup_locations, cr.dropoff_locations,
             l.name as location_name
             FROM car_fleet cf
             JOIN car_rentals cr ON cf.rental_id = cr.rental_id
             LEFT JOIN locations l ON cr.location_id = l.location_id
             WHERE cf.is_active = 1 AND cr.is_active = 1 AND cr.is_verified = 1";
-    
+
     $params = [];
-    
+
     if ($location) {
         $sql .= " AND (cr.company_name LIKE ? OR l.name LIKE ? OR JSON_CONTAINS(cr.pickup_locations, JSON_QUOTE(?)))";
         $like = "%{$location}%";
         $params = array_merge($params, [$like, $like, $location]);
     }
-    
+
     if ($pickupDate && $returnDate) {
         $sql .= " AND cf.car_id NOT IN (
             SELECT ca.car_id FROM car_availability ca
@@ -1039,17 +1065,18 @@ function searchCars($location, $pickupDate, $returnDate, $limit = 20) {
         )";
         $params = array_merge($params, [$pickupDate, $returnDate]);
     }
-    
+
     $sql .= " ORDER BY cf.daily_rate ASC LIMIT " . (int)$limit;
-    
+
     $stmt = $db->prepare($sql);
     $stmt->execute($params);
     return $stmt->fetchAll();
 }
 
-function searchAttractions($location, $date, $limit = 20) {
+function searchAttractions($location, $date, $limit = 20)
+{
     $db = getDB();
-    
+
     $sql = "SELECT a.*, c.name as category_name, c.icon as category_icon,
             l.name as location_name,
             (SELECT MIN(base_price) FROM attraction_tiers WHERE attraction_id = a.attraction_id AND is_active = 1) as min_price
@@ -1057,15 +1084,15 @@ function searchAttractions($location, $date, $limit = 20) {
             LEFT JOIN categories c ON a.category_id = c.category_id
             LEFT JOIN locations l ON a.location_id = l.location_id
             WHERE a.is_active = 1 AND a.is_verified = 1";
-    
+
     $params = [];
-    
+
     if ($location) {
         $sql .= " AND (a.attraction_name LIKE ? OR l.name LIKE ?)";
         $like = "%{$location}%";
         $params = array_merge($params, [$like, $like]);
     }
-    
+
     if ($date) {
         $sql .= " AND a.attraction_id IN (
             SELECT at.attraction_id FROM attraction_tiers att
@@ -1074,9 +1101,9 @@ function searchAttractions($location, $date, $limit = 20) {
         )";
         $params[] = $date;
     }
-    
+
     $sql .= " ORDER BY a.avg_rating DESC LIMIT " . (int)$limit;
-    
+
     $stmt = $db->prepare($sql);
     $stmt->execute($params);
     return $stmt->fetchAll();
@@ -1086,7 +1113,8 @@ function searchAttractions($location, $date, $limit = 20) {
 // IMAGE HELPERS
 // ============================================
 
-function getImageUrl($image, $type = 'stay', $size = 'medium') {
+function getImageUrl($image, $type = 'stay', $size = 'medium')
+{
     // If no image, return placeholder
     if (!$image || $image === 'null' || $image === '') {
         $placeholders = [
@@ -1097,12 +1125,12 @@ function getImageUrl($image, $type = 'stay', $size = 'medium') {
         ];
         return $placeholders[$type] ?? $placeholders['stay'];
     }
-    
+
     // If it's a full URL
     if (strpos($image, 'http') === 0) {
         return $image;
     }
-    
+
     // Define paths
     $paths = [
         'stay' => '/gorwanda-plus/assets/images/stays/',
@@ -1112,15 +1140,15 @@ function getImageUrl($image, $type = 'stay', $size = 'medium') {
         'restaurant' => '/gorwanda-plus/assets/images/restaurants/',
         'profile' => '/gorwanda-plus/assets/uploads/profiles/',
     ];
-    
+
     // Check main folder first
     $basePath = $paths[$type] ?? $paths['stay'];
     $fullPath = $_SERVER['DOCUMENT_ROOT'] . $basePath . $image;
-    
+
     if (file_exists($fullPath)) {
         return $basePath . $image;
     }
-    
+
     // For attractions, also check gallery folder
     if ($type === 'attraction') {
         $galleryPath = $paths['attraction_gallery'] . $image;
@@ -1129,7 +1157,7 @@ function getImageUrl($image, $type = 'stay', $size = 'medium') {
             return $galleryPath;
         }
     }
-    
+
     // File doesn't exist - return placeholder
     $placeholders = [
         'stay' => 'https://images.unsplash.com/photo-1566073771259-6a8506099945?w=400&h=300&fit=crop',
@@ -1144,11 +1172,13 @@ function getImageUrl($image, $type = 'stay', $size = 'medium') {
 // NOTIFICATION / FLASH MESSAGES
 // ============================================
 
-function setFlash($type, $message) {
+function setFlash($type, $message)
+{
     $_SESSION['flash'] = ['type' => $type, 'message' => $message];
 }
 
-function getFlash() {
+function getFlash()
+{
     if (isset($_SESSION['flash'])) {
         $flash = $_SESSION['flash'];
         unset($_SESSION['flash']);
@@ -1157,7 +1187,8 @@ function getFlash() {
     return null;
 }
 
-function showFlash() {
+function showFlash()
+{
     $flash = getFlash();
     if ($flash) {
         $alertClass = [
@@ -1166,7 +1197,7 @@ function showFlash() {
             'warning' => 'alert-warning',
             'info' => 'alert-info'
         ][$flash['type']] ?? 'alert-info';
-        
+
         echo '<div class="alert ' . $alertClass . ' alert-dismissible fade show" role="alert">';
         echo sanitize($flash['message']);
         echo '<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>';
@@ -1177,15 +1208,18 @@ function showFlash() {
 // PASSWORD/SECURITY HELPERS
 // ============================================
 
-function generateSecurePassword($length = 10) {
+function generateSecurePassword($length = 10)
+{
     return bin2hex(random_bytes($length / 2));
 }
 
-function hashPassword($password) {
+function hashPassword($password)
+{
     return password_hash($password, PASSWORD_DEFAULT);
 }
 
-function verifyPassword($password, $hash) {
+function verifyPassword($password, $hash)
+{
     return password_verify($password, $hash);
 }
 
@@ -1193,21 +1227,22 @@ function verifyPassword($password, $hash) {
 // TIME AGO FUNCTION
 // ============================================
 
-function timeAgo($timestamp) {
+function timeAgo($timestamp)
+{
     if (!$timestamp) return tr('just_now');
-    
+
     $time_ago = strtotime($timestamp);
     $current_time = time();
     $time_difference = $current_time - $time_ago;
     $seconds = $time_difference;
-    
+
     $minutes = round($seconds / 60);
     $hours = round($seconds / 3600);
     $days = round($seconds / 86400);
     $weeks = round($seconds / 604800);
     $months = round($seconds / 2629440);
     $years = round($seconds / 31553280);
-    
+
     if ($seconds <= 60) {
         return tr('just_now');
     } else if ($minutes <= 60) {
@@ -1229,28 +1264,29 @@ function timeAgo($timestamp) {
 // ROLE-BASED REDIRECTION
 // ============================================
 
-function getDashboardUrl($user) {
+function getDashboardUrl($user)
+{
     $userType = $user['user_type'] ?? 'tourist';
     $businessTypes = json_decode($user['business_type'] ?? '[]', true);
-    
+
     error_log("User Type: " . $userType);
     error_log("Business Types: " . print_r($businessTypes, true));
-    
-    switch($userType) {
+
+    switch ($userType) {
         case 'admin':
             return '/gorwanda-plus/admin/dashboard.php';
-            
+
         case 'business_owner':
             if (empty($businessTypes)) {
                 return '/gorwanda-plus/partner/onboarding.php';
             }
-            
+
             if (count($businessTypes) > 1) {
                 return '/gorwanda-plus/partner/dashboard.php';
             }
-            
+
             $firstType = $businessTypes[0];
-            switch($firstType) {
+            switch ($firstType) {
                 case 'stay':
                     return '/gorwanda-plus/partner/stays/dashboard.php';
                 case 'car_rental':
@@ -1260,38 +1296,40 @@ function getDashboardUrl($user) {
                 default:
                     return '/gorwanda-plus/partner/dashboard.php';
             }
-            
+
         case 'tourist':
         default:
             return '/gorwanda-plus/';
     }
 }
 
-function isPartnerProfileComplete($userId) {
+function isPartnerProfileComplete($userId)
+{
     $db = getDB();
     $stmt = $db->prepare("SELECT phone, business_type FROM users WHERE user_id = ?");
     $stmt->execute([$userId]);
     $user = $stmt->fetch();
-    
+
     $businessTypes = json_decode($user['business_type'] ?? '[]', true);
     return !empty($businessTypes) && !empty($user['phone']);
 }
 
-function getPartnerOnboardingProgress($userId) {
+function getPartnerOnboardingProgress($userId)
+{
     $db = getDB();
     $progress = ['complete' => 0, 'next_step' => 'basic_info', 'steps' => []];
-    
+
     $stmt = $db->prepare("SELECT phone, business_type FROM users WHERE user_id = ?");
     $stmt->execute([$userId]);
     $user = $stmt->fetch();
-    
+
     $businessTypes = json_decode($user['business_type'] ?? '[]', true);
     $steps = [
         'basic_info' => ['label' => 'Basic Information', 'complete' => !empty($businessTypes) && !empty($user['phone'])],
         'first_property' => ['label' => 'Add First Property', 'complete' => false],
         'verification' => ['label' => 'Verification', 'complete' => false]
     ];
-    
+
     if (in_array('stay', $businessTypes)) {
         $stmt = $db->prepare("SELECT COUNT(*) FROM stays WHERE owner_id = ?");
         $stmt->execute([$userId]);
@@ -1305,7 +1343,7 @@ function getPartnerOnboardingProgress($userId) {
         $stmt->execute([$userId]);
         $steps['first_property']['complete'] = $stmt->fetchColumn() > 0;
     }
-    
+
     $completed = 0;
     foreach ($steps as $key => $step) {
         if ($step['complete']) {
@@ -1315,10 +1353,10 @@ function getPartnerOnboardingProgress($userId) {
             break;
         }
     }
-    
+
     $progress['complete'] = round(($completed / count($steps)) * 100);
     $progress['steps'] = $steps;
-    
+
     return $progress;
 }
 
@@ -1330,9 +1368,10 @@ date_default_timezone_set('Africa/Kigali');
 // ============================================
 // EMAIL FUNCTIONS
 // ============================================
-function sendReservationConfirmation($email, $name, $restaurant, $code, $date, $time, $guests) {
+function sendReservationConfirmation($email, $name, $restaurant, $code, $date, $time, $guests)
+{
     $subject = "Reservation Confirmation - " . $restaurant['restaurant_name'];
-    
+
     $message = "
     <html>
     <head>
@@ -1373,29 +1412,121 @@ function sendReservationConfirmation($email, $name, $restaurant, $code, $date, $
     </body>
     </html>
     ";
-    
+
     $logFile = __DIR__ . '/../logs/emails.log';
     $logEntry = date('Y-m-d H:i:s') . " - Reservation email to $email for code $code\n";
-    
+
     if (!file_exists(dirname($logFile))) {
         mkdir(dirname($logFile), 0777, true);
     }
-    
+
     file_put_contents($logFile, $logEntry, FILE_APPEND);
-    
+
     return true;
 }
+
+
 
 // ============================================
 // ADMIN FUNCTION TO UPDATE EXCHANGE RATES
 // ============================================
 
-function updateExchangeRates() {
+function updateExchangeRates()
+{
     // For now, just return true
     // In production, implement API call
     return true;
 }
 
+/**
+ * Format price with tax included option
+ */
+function formatPriceWithTax($basePrice, $showTaxBreakdown = false)
+{
+    $taxRate = getTaxRate(); // Get from settings (18%)
+    $taxAmount = $basePrice * ($taxRate / 100);
+    $totalPrice = $basePrice + $taxAmount;
 
+    if ($showTaxBreakdown) {
+        // For admin/partner views
+        return [
+            'base' => $basePrice,
+            'tax' => $taxAmount,
+            'total' => $totalPrice,
+            'tax_rate' => $taxRate
+        ];
+    } else {
+        // For customer views - just show total
+        return formatPrice($totalPrice);
+    }
+}
 
-?>
+// ============================================
+// TAX AND PRICE HELPER FUNCTIONS
+// ============================================
+
+/**
+ * Get current tax rate from settings
+ */
+function getTaxRate()
+{
+    // Check session first (set from admin)
+    if (isset($_SESSION['tax_settings']) && isset($_SESSION['tax_settings']['tax_rate'])) {
+        return floatval($_SESSION['tax_settings']['tax_rate']);
+    }
+
+    // Default 18% for Rwanda
+    return 18;
+}
+
+/**
+ * Get tax name
+ */
+function getTaxName()
+{
+    if (isset($_SESSION['tax_settings']) && isset($_SESSION['tax_settings']['tax_name'])) {
+        return $_SESSION['tax_settings']['tax_name'];
+    }
+    return 'VAT';
+}
+
+/**
+ * Display customer price with tax included
+ */
+function displayCustomerPrice($basePrice)
+{
+    $taxRate = getTaxRate();
+    $total = $basePrice * (1 + $taxRate / 100);
+    return formatPrice($total);
+}
+
+/**
+ * Get complete price breakdown for booking
+ */
+function getPriceBreakdown($basePrice, $nights = 1)
+{
+    $taxRate = getTaxRate();
+    $subtotal = $basePrice * $nights;
+    $taxAmount = $subtotal * ($taxRate / 100);
+    $total = $subtotal + $taxAmount;
+
+    return [
+        'subtotal' => $subtotal,
+        'tax_rate' => $taxRate,
+        'tax_name' => getTaxName(),
+        'tax_amount' => $taxAmount,
+        'total' => $total,
+        'per_night_with_tax' => $basePrice * (1 + $taxRate / 100),
+        'nights' => $nights,
+        'base_price' => $basePrice
+    ];
+}
+
+/**
+ * Get customer total amount
+ */
+function getCustomerTotal($basePrice, $nights = 1)
+{
+    $breakdown = getPriceBreakdown($basePrice, $nights);
+    return $breakdown['total'];
+}

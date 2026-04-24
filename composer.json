@@ -7,7 +7,8 @@
         "ext-pdo": "*",
         "ext-mysqli": "*",
         "ext-json": "*",
-        "ext-session": "*"
+        "ext-session": "*",
+        "stripe/stripe-php": "^20.1"
     },
     "config": {
         "optimize-autoloader": true

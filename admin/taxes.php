@@ -19,13 +19,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'update_tax_settings') 
     $tax_number = sanitize($_POST['tax_number'] ?? '');
     $tax_office = sanitize($_POST['tax_office'] ?? 'Rwanda Revenue Authority');
     $invoice_notes = sanitize($_POST['invoice_notes'] ?? '');
-    
+
     // Save tax settings to a settings table or config file
     // For now, we'll store in a new table or update existing bookings tax calculation
-    
+
     // Update the tax rate in the system (this would affect future bookings)
     // You can store these in a settings table
-    
+
     $_SESSION['success'] = "Tax settings updated successfully";
     header('Location: taxes.php');
     exit;
@@ -36,7 +36,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'update_category_taxes'
     $stay_tax_rate = floatval($_POST['stay_tax_rate'] ?? 18);
     $car_tax_rate = floatval($_POST['car_tax_rate'] ?? 18);
     $attraction_tax_rate = floatval($_POST['attraction_tax_rate'] ?? 18);
-    
+
     // Store these rates
     $_SESSION['success'] = "Category tax rates updated successfully";
     header('Location: taxes.php');
@@ -145,408 +145,437 @@ $recentTransactions = $db->query("
 ?>
 
 <style>
-/* Tax Management Styles */
-.tax-header {
-    margin-bottom: 24px;
-}
-
-/* Stats Cards */
-.stats-grid {
-    display: grid;
-    grid-template-columns: repeat(6, 1fr);
-    gap: 16px;
-    margin-bottom: 24px;
-}
-
-.stat-card {
-    background: var(--booking-white);
-    border-radius: var(--radius-md);
-    border: 1px solid var(--booking-border);
-    padding: 16px;
-    text-align: center;
-    transition: all var(--transition-fast);
-}
-
-.stat-card:hover {
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-sm);
-}
-
-.stat-icon {
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    margin-bottom: 8px;
-    font-size: 1.125rem;
-}
-
-.stat-icon.blue { background: rgba(0,102,255,0.1); color: var(--booking-blue); }
-.stat-icon.green { background: rgba(0,128,9,0.1); color: var(--booking-success); }
-.stat-icon.orange { background: rgba(255,140,0,0.1); color: var(--booking-warning); }
-.stat-icon.purple { background: rgba(147,51,234,0.1); color: #9333ea; }
-
-.stat-value {
-    font-size: 1.25rem;
-    font-weight: 700;
-    color: var(--booking-text);
-}
-
-.stat-label {
-    font-size: 0.6875rem;
-    color: var(--booking-text-light);
-    text-transform: uppercase;
-    margin-top: 4px;
-}
-
-/* Settings Section */
-.settings-section {
-    background: var(--booking-white);
-    border-radius: var(--radius-md);
-    border: 1px solid var(--booking-border);
-    padding: 24px;
-    margin-bottom: 24px;
-}
-
-.section-title {
-    font-size: 1rem;
-    font-weight: 700;
-    margin-bottom: 20px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    color: var(--booking-text);
-}
-
-.section-title i {
-    color: var(--booking-blue);
-}
-
-.form-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 20px;
-}
-
-.form-group {
-    margin-bottom: 20px;
-}
-
-.form-group label {
-    display: block;
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: var(--booking-text-light);
-    margin-bottom: 6px;
-    text-transform: uppercase;
-}
-
-.form-control {
-    width: 100%;
-    padding: 10px 12px;
-    border: 1px solid var(--booking-border);
-    border-radius: var(--radius-sm);
-    font-size: 0.8125rem;
-    transition: all var(--transition-fast);
-}
-
-.form-control:focus {
-    outline: none;
-    border-color: var(--booking-blue);
-    box-shadow: 0 0 0 3px rgba(0,102,255,0.1);
-}
-
-.input-group {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.input-group .form-control {
-    flex: 1;
-}
-
-.input-group span {
-    font-size: 0.75rem;
-    color: var(--booking-text-light);
-}
-
-.form-check {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 10px;
-}
-
-.form-check input {
-    width: 16px;
-    height: 16px;
-    cursor: pointer;
-}
-
-.form-check label {
-    margin: 0;
-    cursor: pointer;
-    text-transform: none;
-    font-weight: normal;
-}
-
-.checkbox-group {
-    display: flex;
-    gap: 20px;
-    flex-wrap: wrap;
-    margin-top: 8px;
-}
-
-.save-btn {
-    padding: 10px 24px;
-    background: var(--booking-blue);
-    color: var(--booking-white);
-    border: none;
-    border-radius: var(--radius-sm);
-    font-size: 0.75rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all var(--transition-fast);
-    margin-top: 20px;
-}
-
-.save-btn:hover {
-    background: var(--booking-blue-dark);
-    transform: translateY(-1px);
-}
-
-/* Chart Section */
-.chart-section {
-    background: var(--booking-white);
-    border-radius: var(--radius-md);
-    border: 1px solid var(--booking-border);
-    padding: 20px;
-    margin-bottom: 24px;
-}
-
-.chart-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 20px;
-}
-
-.chart-header h3 {
-    font-size: 0.875rem;
-    font-weight: 700;
-    margin: 0;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.chart-container {
-    height: 250px;
-}
-
-/* Distribution Grid */
-.distribution-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 20px;
-    margin-bottom: 24px;
-}
-
-.distribution-card {
-    background: var(--booking-white);
-    border-radius: var(--radius-md);
-    border: 1px solid var(--booking-border);
-    overflow: hidden;
-}
-
-.distribution-header {
-    padding: 16px;
-    border-bottom: 1px solid var(--booking-border);
-    background: var(--booking-gray-light);
-}
-
-.distribution-header h3 {
-    font-size: 0.875rem;
-    font-weight: 700;
-    margin: 0;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.distribution-body {
-    padding: 16px;
-}
-
-.distribution-item {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 12px;
-}
-
-.distribution-label {
-    width: 100px;
-    font-size: 0.75rem;
-    font-weight: 600;
-}
-
-.distribution-bar {
-    flex: 1;
-    height: 8px;
-    background: var(--booking-gray-light);
-    border-radius: 4px;
-    overflow: hidden;
-}
-
-.distribution-fill {
-    height: 100%;
-    background: var(--booking-blue);
-    border-radius: 4px;
-    transition: width 0.3s;
-}
-
-.distribution-value {
-    width: 80px;
-    font-size: 0.6875rem;
-    color: var(--booking-text-light);
-    text-align: right;
-}
-
-/* Table Styles */
-.table-container {
-    background: var(--booking-white);
-    border-radius: var(--radius-md);
-    border: 1px solid var(--booking-border);
-    overflow-x: auto;
-    margin-bottom: 24px;
-}
-
-.data-table {
-    width: 100%;
-    border-collapse: collapse;
-    min-width: 800px;
-}
-
-.data-table th {
-    text-align: left;
-    padding: 14px 16px;
-    font-size: 0.6875rem;
-    font-weight: 600;
-    color: var(--booking-text-light);
-    background: var(--booking-gray-light);
-    border-bottom: 1px solid var(--booking-border);
-}
-
-.data-table td {
-    padding: 14px 16px;
-    border-bottom: 1px solid var(--booking-border);
-    font-size: 0.75rem;
-    vertical-align: middle;
-}
-
-.data-table tr:hover td {
-    background: var(--booking-gray-light);
-}
-
-.type-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 4px 10px;
-    border-radius: 100px;
-    font-size: 0.625rem;
-    font-weight: 600;
-}
-
-.type-stay { background: rgba(0,102,255,0.1); color: var(--booking-blue); }
-.type-car { background: rgba(147,51,234,0.1); color: #9333ea; }
-.type-attraction { background: rgba(255,140,0,0.1); color: var(--booking-warning); }
-
-.tax-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 4px 10px;
-    border-radius: 100px;
-    font-size: 0.625rem;
-    font-weight: 600;
-    background: #fff4e6;
-    color: var(--booking-warning);
-}
-
-/* Info Box */
-.info-box {
-    background: var(--booking-gray-light);
-    border-radius: var(--radius-md);
-    padding: 16px;
-    margin-top: 16px;
-    display: flex;
-    gap: 12px;
-    align-items: flex-start;
-}
-
-.info-box i {
-    font-size: 1.25rem;
-    color: var(--booking-blue);
-}
-
-.info-box-content {
-    flex: 1;
-}
-
-.info-box-title {
-    font-weight: 600;
-    font-size: 0.75rem;
-    margin-bottom: 4px;
-}
-
-.info-box-text {
-    font-size: 0.6875rem;
-    color: var(--booking-text-light);
-}
-
-/* Alert */
-.alert {
-    padding: 12px 16px;
-    border-radius: var(--radius-md);
-    margin-bottom: 20px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-}
-
-.alert-success {
-    background: #e6f4ea;
-    color: var(--booking-success);
-    border: 1px solid rgba(0,128,9,0.2);
-}
-
-/* Responsive */
-@media (max-width: 1024px) {
-    .stats-grid {
-        grid-template-columns: repeat(3, 1fr);
+    /* Tax Management Styles */
+    .tax-header {
+        margin-bottom: 24px;
     }
+
+    /* Stats Cards */
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(6, 1fr);
+        gap: 16px;
+        margin-bottom: 24px;
+    }
+
+    .stat-card {
+        background: var(--booking-white);
+        border-radius: var(--radius-md);
+        border: 1px solid var(--booking-border);
+        padding: 16px;
+        text-align: center;
+        transition: all var(--transition-fast);
+    }
+
+    .stat-card:hover {
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-sm);
+    }
+
+    .stat-icon {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 8px;
+        font-size: 1.125rem;
+    }
+
+    .stat-icon.blue {
+        background: rgba(0, 102, 255, 0.1);
+        color: var(--booking-blue);
+    }
+
+    .stat-icon.green {
+        background: rgba(0, 128, 9, 0.1);
+        color: var(--booking-success);
+    }
+
+    .stat-icon.orange {
+        background: rgba(255, 140, 0, 0.1);
+        color: var(--booking-warning);
+    }
+
+    .stat-icon.purple {
+        background: rgba(147, 51, 234, 0.1);
+        color: #9333ea;
+    }
+
+    .stat-value {
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: var(--booking-text);
+    }
+
+    .stat-label {
+        font-size: 0.6875rem;
+        color: var(--booking-text-light);
+        text-transform: uppercase;
+        margin-top: 4px;
+    }
+
+    /* Settings Section */
+    .settings-section {
+        background: var(--booking-white);
+        border-radius: var(--radius-md);
+        border: 1px solid var(--booking-border);
+        padding: 24px;
+        margin-bottom: 24px;
+    }
+
+    .section-title {
+        font-size: 1rem;
+        font-weight: 700;
+        margin-bottom: 20px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--booking-text);
+    }
+
+    .section-title i {
+        color: var(--booking-blue);
+    }
+
     .form-grid {
-        grid-template-columns: 1fr;
-    }
-    .distribution-grid {
-        grid-template-columns: 1fr;
-    }
-}
-
-@media (max-width: 768px) {
-    .stats-grid {
+        display: grid;
         grid-template-columns: repeat(2, 1fr);
+        gap: 20px;
     }
-    .checkbox-group {
-        flex-direction: column;
+
+    .form-group {
+        margin-bottom: 20px;
+    }
+
+    .form-group label {
+        display: block;
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--booking-text-light);
+        margin-bottom: 6px;
+        text-transform: uppercase;
+    }
+
+    .form-control {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid var(--booking-border);
+        border-radius: var(--radius-sm);
+        font-size: 0.8125rem;
+        transition: all var(--transition-fast);
+    }
+
+    .form-control:focus {
+        outline: none;
+        border-color: var(--booking-blue);
+        box-shadow: 0 0 0 3px rgba(0, 102, 255, 0.1);
+    }
+
+    .input-group {
+        display: flex;
+        align-items: center;
         gap: 8px;
     }
-}
+
+    .input-group .form-control {
+        flex: 1;
+    }
+
+    .input-group span {
+        font-size: 0.75rem;
+        color: var(--booking-text-light);
+    }
+
+    .form-check {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+    }
+
+    .form-check input {
+        width: 16px;
+        height: 16px;
+        cursor: pointer;
+    }
+
+    .form-check label {
+        margin: 0;
+        cursor: pointer;
+        text-transform: none;
+        font-weight: normal;
+    }
+
+    .checkbox-group {
+        display: flex;
+        gap: 20px;
+        flex-wrap: wrap;
+        margin-top: 8px;
+    }
+
+    .save-btn {
+        padding: 10px 24px;
+        background: var(--booking-blue);
+        color: var(--booking-white);
+        border: none;
+        border-radius: var(--radius-sm);
+        font-size: 0.75rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all var(--transition-fast);
+        margin-top: 20px;
+    }
+
+    .save-btn:hover {
+        background: var(--booking-blue-dark);
+        transform: translateY(-1px);
+    }
+
+    /* Chart Section */
+    .chart-section {
+        background: var(--booking-white);
+        border-radius: var(--radius-md);
+        border: 1px solid var(--booking-border);
+        padding: 20px;
+        margin-bottom: 24px;
+    }
+
+    .chart-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+    }
+
+    .chart-header h3 {
+        font-size: 0.875rem;
+        font-weight: 700;
+        margin: 0;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .chart-container {
+        height: 250px;
+    }
+
+    /* Distribution Grid */
+    .distribution-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 20px;
+        margin-bottom: 24px;
+    }
+
+    .distribution-card {
+        background: var(--booking-white);
+        border-radius: var(--radius-md);
+        border: 1px solid var(--booking-border);
+        overflow: hidden;
+    }
+
+    .distribution-header {
+        padding: 16px;
+        border-bottom: 1px solid var(--booking-border);
+        background: var(--booking-gray-light);
+    }
+
+    .distribution-header h3 {
+        font-size: 0.875rem;
+        font-weight: 700;
+        margin: 0;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .distribution-body {
+        padding: 16px;
+    }
+
+    .distribution-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 12px;
+    }
+
+    .distribution-label {
+        width: 100px;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    .distribution-bar {
+        flex: 1;
+        height: 8px;
+        background: var(--booking-gray-light);
+        border-radius: 4px;
+        overflow: hidden;
+    }
+
+    .distribution-fill {
+        height: 100%;
+        background: var(--booking-blue);
+        border-radius: 4px;
+        transition: width 0.3s;
+    }
+
+    .distribution-value {
+        width: 80px;
+        font-size: 0.6875rem;
+        color: var(--booking-text-light);
+        text-align: right;
+    }
+
+    /* Table Styles */
+    .table-container {
+        background: var(--booking-white);
+        border-radius: var(--radius-md);
+        border: 1px solid var(--booking-border);
+        overflow-x: auto;
+        margin-bottom: 24px;
+    }
+
+    .data-table {
+        width: 100%;
+        border-collapse: collapse;
+        min-width: 800px;
+    }
+
+    .data-table th {
+        text-align: left;
+        padding: 14px 16px;
+        font-size: 0.6875rem;
+        font-weight: 600;
+        color: var(--booking-text-light);
+        background: var(--booking-gray-light);
+        border-bottom: 1px solid var(--booking-border);
+    }
+
+    .data-table td {
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--booking-border);
+        font-size: 0.75rem;
+        vertical-align: middle;
+    }
+
+    .data-table tr:hover td {
+        background: var(--booking-gray-light);
+    }
+
+    .type-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 4px 10px;
+        border-radius: 100px;
+        font-size: 0.625rem;
+        font-weight: 600;
+    }
+
+    .type-stay {
+        background: rgba(0, 102, 255, 0.1);
+        color: var(--booking-blue);
+    }
+
+    .type-car {
+        background: rgba(147, 51, 234, 0.1);
+        color: #9333ea;
+    }
+
+    .type-attraction {
+        background: rgba(255, 140, 0, 0.1);
+        color: var(--booking-warning);
+    }
+
+    .tax-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 4px 10px;
+        border-radius: 100px;
+        font-size: 0.625rem;
+        font-weight: 600;
+        background: #fff4e6;
+        color: var(--booking-warning);
+    }
+
+    /* Info Box */
+    .info-box {
+        background: var(--booking-gray-light);
+        border-radius: var(--radius-md);
+        padding: 16px;
+        margin-top: 16px;
+        display: flex;
+        gap: 12px;
+        align-items: flex-start;
+    }
+
+    .info-box i {
+        font-size: 1.25rem;
+        color: var(--booking-blue);
+    }
+
+    .info-box-content {
+        flex: 1;
+    }
+
+    .info-box-title {
+        font-weight: 600;
+        font-size: 0.75rem;
+        margin-bottom: 4px;
+    }
+
+    .info-box-text {
+        font-size: 0.6875rem;
+        color: var(--booking-text-light);
+    }
+
+    /* Alert */
+    .alert {
+        padding: 12px 16px;
+        border-radius: var(--radius-md);
+        margin-bottom: 20px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .alert-success {
+        background: #e6f4ea;
+        color: var(--booking-success);
+        border: 1px solid rgba(0, 128, 9, 0.2);
+    }
+
+    /* Responsive */
+    @media (max-width: 1024px) {
+        .stats-grid {
+            grid-template-columns: repeat(3, 1fr);
+        }
+
+        .form-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .distribution-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    @media (max-width: 768px) {
+        .stats-grid {
+            grid-template-columns: repeat(2, 1fr);
+        }
+
+        .checkbox-group {
+            flex-direction: column;
+            gap: 8px;
+        }
+    }
 </style>
 
 <div class="tax-header">
@@ -556,13 +585,14 @@ $recentTransactions = $db->query("
 </div>
 
 <?php if (isset($_SESSION['success'])): ?>
-<div class="alert alert-success">
-    <div>
-        <i class="bi bi-check-circle-fill"></i>
-        <?php echo $_SESSION['success']; unset($_SESSION['success']); ?>
+    <div class="alert alert-success">
+        <div>
+            <i class="bi bi-check-circle-fill"></i>
+            <?php echo $_SESSION['success'];
+            unset($_SESSION['success']); ?>
+        </div>
+        <button onclick="this.parentElement.remove()" style="background: none; border: none; cursor: pointer;">&times;</button>
     </div>
-    <button onclick="this.parentElement.remove()" style="background: none; border: none; cursor: pointer;">&times;</button>
-</div>
 <?php endif; ?>
 
 <!-- Statistics Cards -->
@@ -655,7 +685,7 @@ $recentTransactions = $db->query("
                 </div>
             </div>
         </div>
-        
+
         <div class="form-group">
             <label>Apply Tax To</label>
             <div class="checkbox-group">
@@ -673,12 +703,13 @@ $recentTransactions = $db->query("
                 </label>
             </div>
         </div>
-        
+
         <div class="form-check">
-            <input type="checkbox" name="is_active" id="is_active" value="1" checked>
-            <label for="is_active">Enable Tax Collection</label>
+            <input type="checkbox" name="show_tax_separately" id="show_tax_separately" value="1">
+            <label for="show_tax_separately">Show tax breakdown to customers</label>
+            <small class="d-block text-muted">If unchecked, prices will show as "tax included"</small>
         </div>
-        
+
         <button type="submit" class="save-btn">Save Tax Settings</button>
     </form>
 </div>
@@ -748,30 +779,30 @@ $recentTransactions = $db->query("
         </div>
         <div class="distribution-body">
             <?php if (empty($taxByLocation)): ?>
-            <div style="text-align: center; padding: 20px;">
-                <i class="bi bi-map" style="font-size: 2rem; color: var(--booking-text-lighter);"></i>
-                <p style="margin-top: 8px;">No tax data available</p>
-            </div>
-            <?php else: ?>
-            <?php 
-            $maxTax = max(array_column($taxByLocation, 'tax_amount'));
-            foreach ($taxByLocation as $location): 
-            ?>
-            <div class="distribution-item">
-                <div class="distribution-label"><?php echo $location['country']; ?></div>
-                <div class="distribution-bar">
-                    <div class="distribution-fill" style="width: <?php echo $maxTax > 0 ? ($location['tax_amount'] / $maxTax) * 100 : 0; ?>%"></div>
+                <div style="text-align: center; padding: 20px;">
+                    <i class="bi bi-map" style="font-size: 2rem; color: var(--booking-text-lighter);"></i>
+                    <p style="margin-top: 8px;">No tax data available</p>
                 </div>
-                <div class="distribution-value"><?php echo formatPrice($location['tax_amount']); ?></div>
-            </div>
-            <div style="font-size: 0.5625rem; color: var(--booking-text-light); margin-top: -8px; margin-bottom: 12px; padding-left: 100px;">
-                <?php echo $location['booking_count']; ?> bookings
-            </div>
-            <?php endforeach; ?>
+            <?php else: ?>
+                <?php
+                $maxTax = max(array_column($taxByLocation, 'tax_amount'));
+                foreach ($taxByLocation as $location):
+                ?>
+                    <div class="distribution-item">
+                        <div class="distribution-label"><?php echo $location['country']; ?></div>
+                        <div class="distribution-bar">
+                            <div class="distribution-fill" style="width: <?php echo $maxTax > 0 ? ($location['tax_amount'] / $maxTax) * 100 : 0; ?>%"></div>
+                        </div>
+                        <div class="distribution-value"><?php echo formatPrice($location['tax_amount']); ?></div>
+                    </div>
+                    <div style="font-size: 0.5625rem; color: var(--booking-text-light); margin-top: -8px; margin-bottom: 12px; padding-left: 100px;">
+                        <?php echo $location['booking_count']; ?> bookings
+                    </div>
+                <?php endforeach; ?>
             <?php endif; ?>
         </div>
     </div>
-    
+
     <!-- Tax Range Distribution -->
     <div class="distribution-card">
         <div class="distribution-header">
@@ -779,23 +810,23 @@ $recentTransactions = $db->query("
         </div>
         <div class="distribution-body">
             <?php if (empty($taxRateDistribution)): ?>
-            <div style="text-align: center; padding: 20px;">
-                <i class="bi bi-bar-chart" style="font-size: 2rem; color: var(--booking-text-lighter);"></i>
-                <p style="margin-top: 8px;">No distribution data available</p>
-            </div>
-            <?php else: ?>
-            <?php 
-            $maxCount = max(array_column($taxRateDistribution, 'count'));
-            foreach ($taxRateDistribution as $range): 
-            ?>
-            <div class="distribution-item">
-                <div class="distribution-label"><?php echo $range['tax_range']; ?></div>
-                <div class="distribution-bar">
-                    <div class="distribution-fill" style="width: <?php echo $maxCount > 0 ? ($range['count'] / $maxCount) * 100 : 0; ?>%; background: linear-gradient(90deg, #003b95, #0066ff);"></div>
+                <div style="text-align: center; padding: 20px;">
+                    <i class="bi bi-bar-chart" style="font-size: 2rem; color: var(--booking-text-lighter);"></i>
+                    <p style="margin-top: 8px;">No distribution data available</p>
                 </div>
-                <div class="distribution-value"><?php echo number_format($range['count']); ?> bookings</div>
-            </div>
-            <?php endforeach; ?>
+            <?php else: ?>
+                <?php
+                $maxCount = max(array_column($taxRateDistribution, 'count'));
+                foreach ($taxRateDistribution as $range):
+                ?>
+                    <div class="distribution-item">
+                        <div class="distribution-label"><?php echo $range['tax_range']; ?></div>
+                        <div class="distribution-bar">
+                            <div class="distribution-fill" style="width: <?php echo $maxCount > 0 ? ($range['count'] / $maxCount) * 100 : 0; ?>%; background: linear-gradient(90deg, #003b95, #0066ff);"></div>
+                        </div>
+                        <div class="distribution-value"><?php echo number_format($range['count']); ?> bookings</div>
+                    </div>
+                <?php endforeach; ?>
             <?php endif; ?>
         </div>
     </div>
@@ -821,33 +852,34 @@ $recentTransactions = $db->query("
         </thead>
         <tbody>
             <?php if (empty($recentTransactions)): ?>
-            <tr>
-                <td colspan="8" style="text-align: center; padding: 40px;">
-                    <i class="bi bi-receipt" style="font-size: 2rem; color: var(--booking-text-lighter);"></i>
-                    <p style="margin-top: 12px;">No taxable transactions found</p>
-                </td>
-            </tr>
+                <tr>
+                    <td colspan="8" style="text-align: center; padding: 40px;">
+                        <i class="bi bi-receipt" style="font-size: 2rem; color: var(--booking-text-lighter);"></i>
+                        <p style="margin-top: 12px;">No taxable transactions found</p>
+                    </td>
+                </tr>
             <?php else: ?>
-            <?php foreach ($recentTransactions as $transaction): 
-                $typeClass = $transaction['booking_type'] == 'stay' ? 'type-stay' : ($transaction['booking_type'] == 'car_rental' ? 'type-car' : 'type-attraction');
-                $typeIcon = $transaction['booking_type'] == 'stay' ? '🏨' : ($transaction['booking_type'] == 'car_rental' ? '🚗' : '🎟️');
-            ?>
-            <tr>
-                <td><code><?php echo $transaction['booking_reference']; ?></code></div>
-                <td>
-                    <?php echo sanitize($transaction['first_name'] . ' ' . $transaction['last_name']); ?>
-                 </div>
-                <td><?php echo sanitize(substr($transaction['item_name'], 0, 30)); ?></div>
-                <td><span class="type-badge <?php echo $typeClass; ?>"><?php echo $typeIcon; ?> <?php echo ucfirst(str_replace('_', ' ', $transaction['booking_type'])); ?></span></div>
-                <td><?php echo formatPrice($transaction['total_amount'] - $transaction['tax_amount']); ?></div>
-                <td><span class="tax-badge">+ <?php echo formatPrice($transaction['tax_amount']); ?></span></div>
-                <td><strong><?php echo formatPrice($transaction['total_amount']); ?></strong></div>
-                <td><?php echo date('M d, Y', strtotime($transaction['created_at'])); ?></div>
-            </tr>
-            <?php endforeach; ?>
-            <?php endif; ?>
-        </tbody>
-     </div>
+                <?php foreach ($recentTransactions as $transaction):
+                    $typeClass = $transaction['booking_type'] == 'stay' ? 'type-stay' : ($transaction['booking_type'] == 'car_rental' ? 'type-car' : 'type-attraction');
+                    $typeIcon = $transaction['booking_type'] == 'stay' ? '🏨' : ($transaction['booking_type'] == 'car_rental' ? '🚗' : '🎟️');
+                ?>
+                    <tr>
+                        <td><code><?php echo $transaction['booking_reference']; ?></code>
+</div>
+<td>
+    <?php echo sanitize($transaction['first_name'] . ' ' . $transaction['last_name']); ?>
+    </div>
+<td><?php echo sanitize(substr($transaction['item_name'], 0, 30)); ?></div>
+<td><span class="type-badge <?php echo $typeClass; ?>"><?php echo $typeIcon; ?> <?php echo ucfirst(str_replace('_', ' ', $transaction['booking_type'])); ?></span></div>
+<td><?php echo formatPrice($transaction['total_amount'] - $transaction['tax_amount']); ?></div>
+<td><span class="tax-badge">+ <?php echo formatPrice($transaction['tax_amount']); ?></span></div>
+<td><strong><?php echo formatPrice($transaction['total_amount']); ?></strong></div>
+<td><?php echo date('M d, Y', strtotime($transaction['created_at'])); ?></div>
+    </tr>
+<?php endforeach; ?>
+<?php endif; ?>
+</tbody>
+</div>
 </div>
 
 <!-- Tax Information Box -->
@@ -857,7 +889,7 @@ $recentTransactions = $db->query("
         <div class="info-box-title">Understanding Tax Configuration</div>
         <div class="info-box-text">
             <strong>How taxes are calculated:</strong> Tax is applied to the subtotal amount of each booking before commission is deducted.
-            The tax amount is collected from customers and remitted to the relevant tax authority. Current tax rate is applied to all 
+            The tax amount is collected from customers and remitted to the relevant tax authority. Current tax rate is applied to all
             confirmed and completed bookings. Changes to tax rates will affect future bookings only.
         </div>
     </div>
@@ -865,83 +897,99 @@ $recentTransactions = $db->query("
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
-// Tax Trend Chart
-<?php if (!empty($monthlyTax)): ?>
-const ctx = document.getElementById('taxChart').getContext('2d');
-new Chart(ctx, {
-    type: 'line',
-    data: {
-        labels: <?php echo json_encode($months); ?>,
-        datasets: [
-            {
-                label: 'Tax Amount',
-                data: <?php echo json_encode($taxAmounts); ?>,
-                borderColor: '#003b95',
-                backgroundColor: 'rgba(0, 59, 149, 0.1)',
-                borderWidth: 2,
-                fill: true,
-                tension: 0.4,
-                yAxisID: 'y-tax'
+    // Tax Trend Chart
+    <?php if (!empty($monthlyTax)): ?>
+        const ctx = document.getElementById('taxChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: <?php echo json_encode($months); ?>,
+                datasets: [{
+                        label: 'Tax Amount',
+                        data: <?php echo json_encode($taxAmounts); ?>,
+                        borderColor: '#003b95',
+                        backgroundColor: 'rgba(0, 59, 149, 0.1)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.4,
+                        yAxisID: 'y-tax'
+                    },
+                    {
+                        label: 'Bookings',
+                        data: <?php echo json_encode($bookingCounts); ?>,
+                        borderColor: '#008009',
+                        backgroundColor: 'transparent',
+                        borderWidth: 2,
+                        borderDash: [5, 5],
+                        tension: 0.4,
+                        yAxisID: 'y-bookings'
+                    }
+                ]
             },
-            {
-                label: 'Bookings',
-                data: <?php echo json_encode($bookingCounts); ?>,
-                borderColor: '#008009',
-                backgroundColor: 'transparent',
-                borderWidth: 2,
-                borderDash: [5, 5],
-                tension: 0.4,
-                yAxisID: 'y-bookings'
-            }
-        ]
-    },
-    options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        interaction: { mode: 'index', intersect: false },
-        plugins: {
-            tooltip: {
-                callbacks: {
-                    label: function(context) {
-                        if (context.dataset.label === 'Tax Amount') {
-                            return 'Tax: ' + formatCurrency(context.parsed.y);
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false
+                },
+                plugins: {
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                if (context.dataset.label === 'Tax Amount') {
+                                    return 'Tax: ' + formatCurrency(context.parsed.y);
+                                }
+                                return 'Bookings: ' + context.parsed.y;
+                            }
                         }
-                        return 'Bookings: ' + context.parsed.y;
+                    }
+                },
+                scales: {
+                    x: {
+                        ticks: {
+                            font: {
+                                size: 9
+                            },
+                            maxRotation: 45,
+                            minRotation: 45
+                        }
+                    },
+                    'y-tax': {
+                        type: 'linear',
+                        display: true,
+                        position: 'left',
+                        ticks: {
+                            callback: function(value) {
+                                return formatCurrency(value);
+                            },
+                            font: {
+                                size: 9
+                            }
+                        }
+                    },
+                    'y-bookings': {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        grid: {
+                            drawOnChartArea: false
+                        },
+                        ticks: {
+                            stepSize: 1,
+                            font: {
+                                size: 9
+                            }
+                        }
                     }
                 }
             }
-        },
-        scales: {
-            x: { ticks: { font: { size: 9 }, maxRotation: 45, minRotation: 45 } },
-            'y-tax': {
-                type: 'linear',
-                display: true,
-                position: 'left',
-                ticks: {
-                    callback: function(value) {
-                        return formatCurrency(value);
-                    },
-                    font: { size: 9 }
-                }
-            },
-            'y-bookings': {
-                type: 'linear',
-                display: true,
-                position: 'right',
-                grid: { drawOnChartArea: false },
-                ticks: {
-                    stepSize: 1,
-                    font: { size: 9 }
-                }
-            }
-        }
-    }
-});
-<?php endif; ?>
+        });
+    <?php endif; ?>
 
-function formatCurrency(amount) {
-    return 'RWF ' + new Intl.NumberFormat('rw-RW').format(Math.round(amount));
-}
+    function formatCurrency(amount) {
+        return 'RWF ' + new Intl.NumberFormat('rw-RW').format(Math.round(amount));
+    }
 </script>
 
 <?php require_once 'includes/admin_footer.php'; ?>

@@ -103,6 +103,10 @@ foreach ($reviewStats as $key => $value) {
 $roomTypes = array_unique(array_column($allRooms, 'room_name'));
 $maxGuests = max(array_column($allRooms, 'max_guests'));
 
+// Default dates
+$defaultCheckin = date('Y-m-d', strtotime('+1 day'));
+$defaultCheckout = date('Y-m-d', strtotime('+2 days'));
+
 $pageTitle = $stay['stay_name'];
 $hideSearch = true;
 require_once '../includes/header.php';
@@ -466,15 +470,26 @@ require_once '../includes/header.php';
         color: var(--booking-gray-500);
     }
 
-    .room-select-indicator {
+    .room-select-btn {
         margin-top: 16px;
         padding: 10px;
         background: var(--booking-blue-light);
         color: white;
+        border: none;
         border-radius: 8px;
-        font-size: 13px;
+        font-size: 14px;
         font-weight: 600;
-        text-align: center;
+        cursor: pointer;
+        width: 100%;
+        transition: background 0.2s;
+    }
+
+    .room-select-btn:hover {
+        background: var(--booking-blue);
+    }
+
+    .room-card.selected .room-select-btn {
+        background: var(--booking-success);
     }
 
     /* Reviews Section */
@@ -638,6 +653,72 @@ require_once '../includes/header.php';
         padding: 12px;
         margin-bottom: 20px;
         cursor: pointer;
+        position: relative;
+    }
+
+    .guest-dropdown {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        background: white;
+        border: 1px solid var(--booking-gray-200);
+        border-radius: 8px;
+        padding: 16px;
+        margin-top: 4px;
+        box-shadow: var(--booking-shadow-lg);
+        z-index: 100;
+        display: none;
+    }
+
+    .guest-dropdown.active {
+        display: block;
+    }
+
+    .guest-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+    }
+
+    .guest-counter {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .guest-counter button {
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        border: 1px solid var(--booking-gray-200);
+        background: white;
+        cursor: pointer;
+        font-size: 16px;
+        font-weight: 700;
+    }
+
+    .guest-counter button:disabled {
+        opacity: 0.3;
+        cursor: not-allowed;
+    }
+
+    .guest-counter span {
+        font-weight: 700;
+        min-width: 24px;
+        text-align: center;
+    }
+
+    .guest-done-btn {
+        width: 100%;
+        padding: 8px;
+        background: var(--booking-blue-light);
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        margin-top: 12px;
     }
 
     .selected-room-preview {
@@ -897,6 +978,7 @@ require_once '../includes/header.php';
                 <div class="rooms-grid" id="roomsGrid">
                     <?php foreach ($allRooms as $index => $room):
                         $roomAmenities = json_decode($room['room_amenities'] ?? '[]', true);
+                        $finalPrice = displayCustomerPrice($room['base_price']); // Calculate here
                     ?>
                         <div class="room-card" data-room-id="<?php echo $room['room_id']; ?>" data-room-type="<?php echo strtolower(str_replace(' ', '-', $room['room_name'])); ?>">
                             <div class="room-content">
@@ -928,12 +1010,11 @@ require_once '../includes/header.php';
                                     <?php endif; ?>
                                 </div>
                                 <div class="room-price-box">
-                                    <div class="room-price-label">Price per night</div>
-                                    <div class="room-price-value"><?php echo formatPrice($room['base_price']); ?></div>
-                                    <div class="room-price-unit">includes taxes & fees</div>
-                                    <div class="room-select-indicator" onclick="selectRoom(<?php echo $room['room_id']; ?>, '<?php echo addslashes($room['room_name']); ?>', <?php echo $room['base_price']; ?>, event)">
+                                    <div class="room-price-label">Price per night (tax included)</div>
+                                    <div class="room-price-value"><?php echo $finalPrice; ?></div>
+                                    <button class="room-select-btn" onclick="selectRoom(<?php echo $room['room_id']; ?>, '<?php echo addslashes($room['room_name']); ?>', <?php echo $room['base_price']; ?>, event)">
                                         Select room
-                                    </div>
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -1003,45 +1084,51 @@ require_once '../includes/header.php';
                 <h3>Book your stay</h3>
 
                 <!-- Date Selection -->
-                <div class="date-selector" onclick="this.querySelector('input').showPicker()">
+                <div class="date-selector">
                     <div class="date-label">Check-in</div>
-                    <input type="date" id="checkinDate" style="border: none; background: transparent; font-weight: 600; width: 100%;" value="<?php echo date('Y-m-d'); ?>">
+                    <div class="date-value" id="checkinDisplay"><?php echo date('D, M d', strtotime($defaultCheckin)); ?></div>
                 </div>
-                <div class="date-selector" onclick="this.querySelector('input').showPicker()">
+                <div class="date-selector">
                     <div class="date-label">Check-out</div>
-                    <input type="date" id="checkoutDate" style="border: none; background: transparent; font-weight: 600; width: 100%;" value="<?php echo date('Y-m-d', strtotime('+1 day')); ?>">
+                    <div class="date-value" id="checkoutDisplay"><?php echo date('D, M d', strtotime($defaultCheckout)); ?></div>
                 </div>
 
                 <!-- Guest Selection -->
-                <div class="guest-selector" onclick="toggleGuestDropdown()">
+                <div class="guest-selector" id="guestSelector">
                     <div class="date-label">Guests</div>
                     <div class="date-value" id="guestDisplay">2 adults</div>
-                    <div id="guestDropdown" style="display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--booking-gray-200);">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                            <span>Adults</span>
-                            <div style="display: flex; align-items: center; gap: 12px;">
-                                <button onclick="changeGuests(-1)" style="width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--booking-gray-200); background: white; cursor: pointer;">-</button>
+                    <div class="guest-dropdown" id="guestDropdown">
+                        <div class="guest-row">
+                            <div>Adults</div>
+                            <div class="guest-counter">
+                                <button onclick="changeGuests(-1, event)">-</button>
                                 <span id="adultCount">2</span>
-                                <button onclick="changeGuests(1)" style="width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--booking-gray-200); background: white; cursor: pointer;">+</button>
+                                <button onclick="changeGuests(1, event)">+</button>
                             </div>
                         </div>
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <span>Children</span>
-                            <div style="display: flex; align-items: center; gap: 12px;">
-                                <button onclick="changeChildren(-1)" style="width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--booking-gray-200); background: white; cursor: pointer;">-</button>
+                        <div class="guest-row">
+                            <div>Children</div>
+                            <div class="guest-counter">
+                                <button onclick="changeChildren(-1, event)">-</button>
                                 <span id="childCount">0</span>
-                                <button onclick="changeChildren(1)" style="width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--booking-gray-200); background: white; cursor: pointer;">+</button>
+                                <button onclick="changeChildren(1, event)">+</button>
                             </div>
                         </div>
-                        <button onclick="closeGuestDropdown()" style="width: 100%; margin-top: 12px; padding: 8px; background: var(--booking-blue-light); color: white; border: none; border-radius: 4px; cursor: pointer;">Done</button>
+                        <button class="guest-done-btn" onclick="closeGuestDropdown()">Done</button>
                     </div>
                 </div>
 
-                <!-- Selected Room Preview -->
+                <!-- Hidden inputs for dates -->
+                <input type="hidden" id="checkinDate" value="<?php echo $defaultCheckin; ?>">
+                <input type="hidden" id="checkoutDate" value="<?php echo $defaultCheckout; ?>">
+
+                <!-- Selected Room Preview with Tax Included -->
                 <div id="selectedRoomPreview" style="display: none;" class="selected-room-preview">
                     <div style="font-size: 12px; color: var(--booking-gray-500);">Selected room</div>
                     <div style="font-weight: 700; font-size: 16px;" id="previewRoomName"></div>
+                    <div style="font-size: 13px; color: var(--booking-gray-500); margin-top: 4px;" id="previewRoomPerNight"></div>
                     <div style="font-size: 18px; font-weight: 700; color: var(--booking-success); margin-top: 8px;" id="previewRoomPrice"></div>
+                    <div style="font-size: 11px; color: var(--booking-gray-500); margin-top: 4px;" id="previewTaxNote"></div>
                 </div>
 
                 <!-- Reserve Button -->
@@ -1079,57 +1166,216 @@ require_once '../includes/header.php';
 </div>
 
 <script>
-    // Room selection
+    // ============================================
+    // ROOM SELECTION
+    // ============================================
     let selectedRoomId = null;
     let selectedRoomPrice = 0;
     let selectedRoomName = '';
-    let selectedRoomTotal = 0;
 
-    function selectRoom(roomId, roomName, price, event) {
-        event.stopPropagation();
+    function selectRoom(roomId, roomName, basePrice, event) {
+        if (event) {
+            event.stopPropagation();
+        }
 
         // Reset all room cards
         document.querySelectorAll('.room-card').forEach(card => {
             card.classList.remove('selected');
-            const indicator = card.querySelector('.room-select-indicator');
-            if (indicator) {
-                indicator.textContent = 'Select room';
-                indicator.style.background = '#0071c2';
+            const btn = card.querySelector('.room-select-btn');
+            if (btn) {
+                btn.textContent = 'Select room';
+                btn.style.background = '#0071c2';
             }
         });
 
         // Select current room
         const roomCard = document.querySelector(`.room-card[data-room-id="${roomId}"]`);
-        roomCard.classList.add('selected');
-        const indicator = roomCard.querySelector('.room-select-indicator');
-        indicator.textContent = 'Selected ✓';
-        indicator.style.background = '#008009';
+        if (roomCard) {
+            roomCard.classList.add('selected');
+            const btn = roomCard.querySelector('.room-select-btn');
+            if (btn) {
+                btn.textContent = 'Selected ✓';
+                btn.style.background = '#008009';
+            }
+        }
 
         selectedRoomId = roomId;
-        selectedRoomPrice = price;
+        selectedRoomPrice = basePrice;
         selectedRoomName = roomName;
 
-        // Update preview
+        // Calculate prices with tax
         const nights = calculateNights();
-        selectedRoomTotal = price * nights;
+        const taxRate = <?php echo getTaxRate(); ?>;
+        const perNightWithTax = basePrice * (1 + taxRate / 100);
+        const subtotal = basePrice * nights;
+        const taxAmount = subtotal * (taxRate / 100);
+        const totalWithTax = subtotal + taxAmount;
 
-        document.getElementById('previewRoomName').textContent = roomName;
-        document.getElementById('previewRoomPrice').textContent = 'RWF ' + selectedRoomTotal.toLocaleString();
-        document.getElementById('selectedRoomPreview').style.display = 'block';
-
-        // Enable reserve button
+        // Update preview with tax-inclusive prices
+        const previewDiv = document.getElementById('selectedRoomPreview');
+        const previewName = document.getElementById('previewRoomName');
+        const previewPerNight = document.getElementById('previewRoomPerNight');
+        const previewPrice = document.getElementById('previewRoomPrice');
+        const previewTaxNote = document.getElementById('previewTaxNote');
         const reserveBtn = document.getElementById('reserveBtn');
-        reserveBtn.disabled = false;
-        reserveBtn.textContent = 'Reserve • RWF ' + selectedRoomTotal.toLocaleString();
+
+        if (previewDiv) previewDiv.style.display = 'block';
+        if (previewName) previewName.textContent = roomName;
+        if (previewPerNight) previewPerNight.textContent = formatCurrency(perNightWithTax) + ' per night (tax included)';
+        if (previewPrice) previewPrice.textContent = formatCurrency(totalWithTax);
+        if (previewTaxNote) previewTaxNote.textContent = 'Includes ' + formatCurrency(taxAmount) + ' ' + taxRate + '% VAT';
+        if (reserveBtn) {
+            reserveBtn.disabled = false;
+            reserveBtn.textContent = 'Reserve • ' + formatCurrency(totalWithTax);
+        }
     }
 
+    // Add formatCurrency function if not exists
+    function formatCurrency(amount) {
+        return 'RWF ' + amount.toLocaleString();
+    }
+
+    // ============================================
+    // DATE FUNCTIONS
+    // ============================================
     function calculateNights() {
         const checkin = document.getElementById('checkinDate').value;
         const checkout = document.getElementById('checkoutDate').value;
+        if (!checkin || !checkout) return 1;
         const diffTime = Math.abs(new Date(checkout) - new Date(checkin));
         return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     }
 
+    function updateDates() {
+        const checkin = document.getElementById('checkinDate').value;
+        const checkout = document.getElementById('checkoutDate').value;
+
+        document.getElementById('checkinDisplay').textContent = new Date(checkin).toLocaleDateString('en-US', {
+            weekday: 'short',
+            month: 'short',
+            day: 'numeric'
+        });
+        document.getElementById('checkoutDisplay').textContent = new Date(checkout).toLocaleDateString('en-US', {
+            weekday: 'short',
+            month: 'short',
+            day: 'numeric'
+        });
+
+        if (selectedRoomId) {
+            const nights = calculateNights();
+            const total = selectedRoomPrice * nights;
+            const previewPrice = document.getElementById('previewRoomPrice');
+            const reserveBtn = document.getElementById('reserveBtn');
+            if (previewPrice) previewPrice.textContent = 'RWF ' + total.toLocaleString();
+            if (reserveBtn) reserveBtn.textContent = 'Reserve • RWF ' + total.toLocaleString();
+        }
+    }
+
+    // Date selectors
+    document.querySelectorAll('.date-selector').forEach((selector, index) => {
+        selector.addEventListener('click', function() {
+            const dateInput = document.createElement('input');
+            dateInput.type = 'date';
+            dateInput.style.position = 'absolute';
+            dateInput.style.opacity = '0';
+            dateInput.style.pointerEvents = 'none';
+            document.body.appendChild(dateInput);
+
+            const isCheckin = index === 0;
+            const currentDate = document.getElementById(isCheckin ? 'checkinDate' : 'checkoutDate').value;
+            dateInput.value = currentDate;
+
+            dateInput.showPicker();
+
+            dateInput.addEventListener('change', function() {
+                const newDate = this.value;
+                if (isCheckin) {
+                    document.getElementById('checkinDate').value = newDate;
+                    let checkoutDate = document.getElementById('checkoutDate').value;
+                    if (new Date(checkoutDate) <= new Date(newDate)) {
+                        const nextDay = new Date(newDate);
+                        nextDay.setDate(nextDay.getDate() + 1);
+                        const newCheckout = nextDay.toISOString().split('T')[0];
+                        document.getElementById('checkoutDate').value = newCheckout;
+                    }
+                } else {
+                    let checkinDate = document.getElementById('checkinDate').value;
+                    if (new Date(newDate) <= new Date(checkinDate)) {
+                        const nextDay = new Date(checkinDate);
+                        nextDay.setDate(nextDay.getDate() + 1);
+                        document.getElementById('checkoutDate').value = nextDay.toISOString().split('T')[0];
+                    } else {
+                        document.getElementById('checkoutDate').value = newDate;
+                    }
+                }
+                updateDates();
+                document.body.removeChild(dateInput);
+            });
+        });
+    });
+
+    // ============================================
+    // GUEST FUNCTIONS
+    // ============================================
+    let adultCount = 2;
+    let childCount = 0;
+
+    function toggleGuestDropdown(event) {
+        if (event) event.stopPropagation();
+        const dropdown = document.getElementById('guestDropdown');
+        dropdown.classList.toggle('active');
+    }
+
+    function closeGuestDropdown() {
+        const dropdown = document.getElementById('guestDropdown');
+        dropdown.classList.remove('active');
+    }
+
+    function changeGuests(delta, event) {
+        if (event) event.stopPropagation();
+        adultCount = Math.max(1, Math.min(8, adultCount + delta));
+        document.getElementById('adultCount').textContent = adultCount;
+        updateGuestDisplay();
+        updateGuestButtonStates();
+    }
+
+    function changeChildren(delta, event) {
+        if (event) event.stopPropagation();
+        childCount = Math.max(0, Math.min(6, childCount + delta));
+        document.getElementById('childCount').textContent = childCount;
+        updateGuestDisplay();
+        updateGuestButtonStates();
+    }
+
+    function updateGuestDisplay() {
+        const guestDisplay = document.getElementById('guestDisplay');
+        guestDisplay.textContent = adultCount + ' adult' + (adultCount > 1 ? 's' : '') + (childCount > 0 ? ', ' + childCount + ' child' + (childCount > 1 ? 'ren' : '') : '');
+    }
+
+    function updateGuestButtonStates() {
+        const adultMinus = document.querySelectorAll('.guest-counter button').item(0);
+        const adultPlus = document.querySelectorAll('.guest-counter button').item(1);
+        const childMinus = document.querySelectorAll('.guest-counter button').item(2);
+        const childPlus = document.querySelectorAll('.guest-counter button').item(3);
+
+        if (adultMinus) adultMinus.disabled = adultCount <= 1;
+        if (adultPlus) adultPlus.disabled = adultCount >= 8;
+        if (childMinus) childMinus.disabled = childCount <= 0;
+        if (childPlus) childPlus.disabled = childCount >= 6;
+    }
+
+    document.getElementById('guestSelector').addEventListener('click', toggleGuestDropdown);
+    document.addEventListener('click', function(event) {
+        const dropdown = document.getElementById('guestDropdown');
+        const selector = document.getElementById('guestSelector');
+        if (dropdown && selector && !selector.contains(event.target)) {
+            dropdown.classList.remove('active');
+        }
+    });
+
+    // ============================================
+    // PROCEED TO BOOKING
+    // ============================================
     function proceedToBooking() {
         if (!selectedRoomId) {
             alert('Please select a room first');
@@ -1138,24 +1384,23 @@ require_once '../includes/header.php';
 
         const checkin = document.getElementById('checkinDate').value;
         const checkout = document.getElementById('checkoutDate').value;
-        const adults = document.getElementById('adultCount').textContent;
-        const children = document.getElementById('childCount').textContent;
-        const guests = parseInt(adults) + parseInt(children);
+        const guests = adultCount + childCount;
 
-        window.location.href = 'booking.php?id=<?php echo $id; ?>&room=' + selectedRoomId +
-            '&checkin=' + checkin + '&checkout=' + checkout + '&guests=' + guests;
+        // Pass base price (without tax) to booking page - tax will be added there
+        const bookingUrl = `/gorwanda-plus/stays/booking.php?id=<?php echo $id; ?>&room=${selectedRoomId}&checkin=${checkin}&checkout=${checkout}&guests=${guests}`;
+        window.location.href = bookingUrl;
     }
 
-    // Room filtering
+    // ============================================
+    // ROOM FILTERING
+    // ============================================
     document.querySelectorAll('.filter-btn').forEach(btn => {
         btn.addEventListener('click', function() {
             const filter = this.dataset.filter;
 
-            // Update active state
             document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
             this.classList.add('active');
 
-            // Filter rooms
             const rooms = document.querySelectorAll('.room-card');
             let visibleCount = 0;
 
@@ -1178,84 +1423,35 @@ require_once '../includes/header.php';
         });
     });
 
-    // Guest selection
-    let adultCount = 2;
-    let childCount = 0;
+    // ============================================
+    // GALLERY
+    // ============================================
+    const galleryImages = <?php echo json_encode(array_map(function ($img) {
+                                return getImageUrl($img, 'stay');
+                            }, $images)); ?>;
 
-    function toggleGuestDropdown() {
-        const dropdown = document.getElementById('guestDropdown');
-        dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
-    }
-
-    function closeGuestDropdown() {
-        document.getElementById('guestDropdown').style.display = 'none';
-    }
-
-    function changeGuests(delta) {
-        adultCount = Math.max(1, Math.min(8, adultCount + delta));
-        document.getElementById('adultCount').textContent = adultCount;
-        document.getElementById('guestDisplay').textContent = adultCount + ' adult' + (adultCount > 1 ? 's' : '') + (childCount > 0 ? ', ' + childCount + ' child' + (childCount > 1 ? 'ren' : '') : '');
-    }
-
-    function changeChildren(delta) {
-        childCount = Math.max(0, Math.min(6, childCount + delta));
-        document.getElementById('childCount').textContent = childCount;
-        document.getElementById('guestDisplay').textContent = adultCount + ' adult' + (adultCount > 1 ? 's' : '') + (childCount > 0 ? ', ' + childCount + ' child' + (childCount > 1 ? 'ren' : '') : '');
-    }
-
-    // Date calculations
-    document.getElementById('checkinDate').addEventListener('change', function() {
-        const checkout = document.getElementById('checkoutDate');
-        if (new Date(checkout.value) <= new Date(this.value)) {
-            const nextDay = new Date(this.value);
-            nextDay.setDate(nextDay.getDate() + 1);
-            checkout.value = nextDay.toISOString().split('T')[0];
-        }
-        updateSelectedRoomPrice();
-    });
-
-    document.getElementById('checkoutDate').addEventListener('change', function() {
-        updateSelectedRoomPrice();
-    });
-
-    function updateSelectedRoomPrice() {
-        if (selectedRoomId) {
-            const nights = calculateNights();
-            selectedRoomTotal = selectedRoomPrice * nights;
-            document.getElementById('previewRoomPrice').textContent = 'RWF ' + selectedRoomTotal.toLocaleString();
-            const reserveBtn = document.getElementById('reserveBtn');
-            reserveBtn.textContent = 'Reserve • RWF ' + selectedRoomTotal.toLocaleString();
-        }
-    }
-
-    // Gallery
     function openGallery(index) {
-        const images = <?php echo json_encode(array_map(function ($img) {
-                            return getImageUrl($img, 'stay');
-                        }, $images)); ?>;
-        document.getElementById('modalImage').src = images[index];
-        document.getElementById('galleryModal').style.display = 'flex';
-        document.body.style.overflow = 'hidden';
+        const modal = document.getElementById('galleryModal');
+        const modalImage = document.getElementById('modalImage');
+        if (modal && modalImage && galleryImages[index]) {
+            modalImage.src = galleryImages[index];
+            modal.style.display = 'flex';
+            document.body.style.overflow = 'hidden';
+        }
     }
 
     function closeGallery() {
-        document.getElementById('galleryModal').style.display = 'none';
-        document.body.style.overflow = 'auto';
+        const modal = document.getElementById('galleryModal');
+        if (modal) {
+            modal.style.display = 'none';
+            document.body.style.overflow = 'auto';
+        }
     }
 
-    // Close dropdown when clicking outside
-    document.addEventListener('click', function(event) {
-        const guestSelector = document.querySelector('.guest-selector');
-        const dropdown = document.getElementById('guestDropdown');
-        if (guestSelector && !guestSelector.contains(event.target)) {
-            dropdown.style.display = 'none';
-        }
-    });
-
-    // Set min dates for date inputs
-    const today = new Date().toISOString().split('T')[0];
-    document.getElementById('checkinDate').min = today;
-    document.getElementById('checkoutDate').min = today;
+    // Initialize
+    updateGuestDisplay();
+    updateGuestButtonStates();
+    updateDates();
 </script>
 
 <?php require_once '../includes/footer.php'; ?>

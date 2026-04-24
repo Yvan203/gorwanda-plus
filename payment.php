@@ -1,306 +1,314 @@
 <?php
-ob_start();
 require_once 'includes/functions.php';
+require_once 'config/stripe.php';
 
-$bookingRef = sanitize($_GET['booking'] ?? '');
+// Check if user is logged in
+if (!isLoggedIn()) {
+    $_SESSION['redirect_after_login'] = $_SERVER['REQUEST_URI'];
+    header('Location: login.php');
+    exit;
+}
 
-if (!$bookingRef) {
-    header('Location: /gorwanda-plus/');
+// Get booking ID from URL
+$bookingId = isset($_GET['booking_id']) ? intval($_GET['booking_id']) : 0;
+
+if (!$bookingId) {
+    header('Location: index.php');
     exit;
 }
 
 $db = getDB();
+$userId = $_SESSION['user_id'];
 
 // Get booking details
 $stmt = $db->prepare("
-    SELECT b.*, s.stay_name, s.address, sr.room_name 
+    SELECT b.*, s.stay_name, sr.room_name, u.first_name, u.last_name, u.email
     FROM bookings b
     LEFT JOIN stay_rooms sr ON b.stay_room_id = sr.room_id
     LEFT JOIN stays s ON sr.stay_id = s.stay_id
-    WHERE b.booking_reference = ? AND b.user_id = ?
+    LEFT JOIN users u ON b.user_id = u.user_id
+    WHERE b.booking_id = ? AND b.user_id = ? AND b.payment_status = 'pending'
 ");
-$stmt->execute([$bookingRef, $_SESSION['user_id']]);
+$stmt->execute([$bookingId, $userId]);
 $booking = $stmt->fetch();
 
 if (!$booking) {
-    setFlash('error', 'Booking not found');
-    header('Location: /gorwanda-plus/');
+    header('Location: index.php');
     exit;
 }
 
-// Handle payment simulation
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Simulate MoMo payment processing
-    sleep(1); // Simulate API delay
-    
-    // Update booking as paid
-    $stmt = $db->prepare("UPDATE bookings SET payment_status = 'paid', status = 'confirmed', payment_reference = ?, payment_method = 'momo' WHERE booking_id = ?");
-    $stmt->execute(['MOMO-' . uniqid(), $booking['booking_id']]);
-    
-    setFlash('success', 'Payment successful! Your booking is confirmed.');
-    header('Location: /gorwanda-plus/booking-confirmation.php?ref=' . $bookingRef);
-    exit;
-}
-
-$pageTitle = 'Payment';
+$pageTitle = 'Payment - ' . $booking['booking_reference'];
 $hideSearch = true;
 require_once 'includes/header.php';
 ?>
 
 <style>
-.payment-page {
-    background: var(--bg-gray);
-    min-height: calc(100vh - 64px);
-    padding: 40px 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
+    .payment-container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 40px 20px;
+    }
 
-.payment-card {
-    background: white;
-    border-radius: 24px;
-    padding: 48px;
-    width: 100%;
-    max-width: 480px;
-    text-align: center;
-    box-shadow: 0 20px 60px rgba(0,0,0,0.1);
-}
+    .payment-layout {
+        display: grid;
+        grid-template-columns: 1fr 400px;
+        gap: 32px;
+    }
 
-.payment-icon {
-    width: 80px;
-    height: 80px;
-    background: linear-gradient(135deg, #0066ff, #003b95);
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin: 0 auto 24px;
-    color: white;
-    font-size: 2rem;
-    animation: pulse 2s infinite;
-}
+    .payment-card {
+        background: white;
+        border: 1px solid #e7e7e7;
+        border-radius: 12px;
+        padding: 24px;
+        margin-bottom: 24px;
+    }
 
-@keyframes pulse {
-    0%, 100% { transform: scale(1); }
-    50% { transform: scale(1.05); }
-}
+    .payment-header {
+        border-bottom: 1px solid #e7e7e7;
+        padding-bottom: 16px;
+        margin-bottom: 24px;
+    }
 
-.payment-title {
-    font-size: 1.5rem;
-    font-weight: 700;
-    margin-bottom: 8px;
-}
+    .payment-header h2 {
+        font-size: 20px;
+        font-weight: 700;
+        margin: 0;
+    }
 
-.payment-subtitle {
-    color: var(--text-secondary);
-    margin-bottom: 32px;
-}
+    .form-group {
+        margin-bottom: 20px;
+    }
 
-.amount-display {
-    background: var(--bg-gray);
-    border-radius: 16px;
-    padding: 24px;
-    margin-bottom: 32px;
-}
+    .form-group label {
+        display: block;
+        font-size: 13px;
+        font-weight: 600;
+        margin-bottom: 6px;
+    }
 
-.amount-label {
-    font-size: 0.875rem;
-    color: var(--text-secondary);
-    margin-bottom: 8px;
-}
+    .form-control {
+        width: 100%;
+        padding: 12px;
+        border: 1px solid #e7e7e7;
+        border-radius: 8px;
+        font-size: 14px;
+    }
 
-.amount-value {
-    font-size: 2.5rem;
-    font-weight: 800;
-    color: var(--text-primary);
-}
+    .card-element {
+        padding: 12px;
+        border: 1px solid #e7e7e7;
+        border-radius: 8px;
+        background: white;
+    }
 
-.momo-form {
-    text-align: left;
-}
+    .pay-btn {
+        width: 100%;
+        padding: 14px;
+        background: #0071c2;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-size: 16px;
+        font-weight: 700;
+        cursor: pointer;
+        margin-top: 20px;
+    }
 
-.form-group {
-    margin-bottom: 20px;
-}
+    .pay-btn:hover {
+        background: #003580;
+    }
 
-.form-label {
-    display: block;
-    font-size: 0.8125rem;
-    font-weight: 600;
-    margin-bottom: 8px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
+    .summary-card {
+        background: #f5f5f5;
+        border-radius: 12px;
+        padding: 24px;
+        position: sticky;
+        top: 20px;
+    }
 
-.form-input {
-    width: 100%;
-    padding: 16px;
-    border: 2px solid var(--border-color);
-    border-radius: 12px;
-    font-size: 1rem;
-    text-align: center;
-    letter-spacing: 2px;
-    transition: all 0.3s;
-}
+    .summary-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 8px 0;
+        font-size: 14px;
+    }
 
-.form-input:focus {
-    outline: none;
-    border-color: #ffcc00;
-    box-shadow: 0 0 0 4px rgba(255, 204, 0, 0.1);
-}
+    .summary-row.total {
+        border-top: 1px solid #e7e7e7;
+        margin-top: 8px;
+        padding-top: 16px;
+        font-weight: 700;
+        font-size: 18px;
+    }
 
-.btn-pay {
-    width: 100%;
-    padding: 18px;
-    background: linear-gradient(135deg, #ffcc00, #ffb700);
-    color: #1a1a1a;
-    border: none;
-    border-radius: 12px;
-    font-size: 1.125rem;
-    font-weight: 700;
-    cursor: pointer;
-    transition: all 0.3s;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 12px;
-}
+    .secure-badge {
+        text-align: center;
+        margin-top: 20px;
+        font-size: 12px;
+        color: #6b6b6b;
+    }
 
-.btn-pay:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 20px rgba(255, 204, 0, 0.4);
-}
-
-.btn-pay:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-    transform: none;
-}
-
-.spinner {
-    width: 20px;
-    height: 20px;
-    border: 3px solid rgba(0,0,0,0.3);
-    border-top-color: #1a1a1a;
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
-    display: none;
-}
-
-@keyframes spin {
-    to { transform: rotate(360deg); }
-}
-
-.security-badges {
-    display: flex;
-    justify-content: center;
-    gap: 24px;
-    margin-top: 24px;
-    padding-top: 24px;
-    border-top: 1px solid var(--border-color);
-}
-
-.badge-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 0.75rem;
-    color: var(--text-secondary);
-}
-
-.booking-summary {
-    background: white;
-    border-radius: 16px;
-    padding: 20px;
-    margin-bottom: 24px;
-    text-align: left;
-    border: 1px solid var(--border-color);
-}
-
-.summary-row {
-    display: flex;
-    justify-content: space-between;
-    margin-bottom: 8px;
-    font-size: 0.875rem;
-}
-
-.summary-row:last-child {
-    margin-bottom: 0;
-    padding-top: 8px;
-    border-top: 1px solid var(--border-color);
-    font-weight: 600;
-}
+    @media (max-width: 768px) {
+        .payment-layout {
+            grid-template-columns: 1fr;
+        }
+    }
 </style>
 
-<div class="payment-page">
-    <div class="payment-card">
-        <div class="payment-icon">
-            <i class="bi bi-phone-fill"></i>
+<script src="https://js.stripe.com/v3/"></script>
+
+<div class="payment-container">
+    <div class="payment-layout">
+        <!-- Left Column - Payment Form -->
+        <div>
+            <div class="payment-card">
+                <div class="payment-header">
+                    <h2>Payment Information</h2>
+                </div>
+
+                <form id="payment-form">
+                    <div class="form-group">
+                        <label>Cardholder Name</label>
+                        <input type="text" id="cardholder_name" class="form-control"
+                            value="<?php echo sanitize($booking['first_name'] . ' ' . $booking['last_name']); ?>" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Card Details</label>
+                        <div id="card-element" class="card-element"></div>
+                        <div id="card-errors" role="alert" style="color: #c41c1c; font-size: 12px; margin-top: 8px;"></div>
+                    </div>
+
+                    <button type="submit" class="pay-btn" id="submit-btn">
+                        Pay <?php echo formatPrice($booking['total_amount']); ?>
+                    </button>
+                </form>
+
+                <div class="secure-badge">
+                    <i class="bi bi-shield-lock"></i> Secure payment powered by Stripe
+                </div>
+            </div>
         </div>
-        
-        <h1 class="payment-title">MTN Mobile Money</h1>
-        <p class="payment-subtitle">Complete your booking payment</p>
-        
-        <div class="booking-summary">
-            <div class="summary-row">
-                <span>Booking Reference</span>
-                <span style="font-family: monospace; font-weight: 600;"><?php echo $bookingRef; ?></span>
-            </div>
-<div class="summary-row">
-    <span>Property</span>
-    <span><?php echo sanitize($booking['stay_name'] ?? $booking['booking_reference']); ?></span>
-</div>
-            <div class="summary-row">
-                <span>Total Amount</span>
-                <span style="color: var(--primary-blue); font-weight: 700;"><?php echo formatPrice($booking['total_amount']); ?></span>
-            </div>
-        </div>
-        
-        <form method="POST" action="" class="momo-form" id="paymentForm">
-            <div class="form-group">
-                <label class="form-label">MTN MoMo Number</label>
-                <input type="tel" name="phone" class="form-input" placeholder="078 XXXX XXX" 
-                       value="<?php echo sanitize($currentUser['phone'] ?? ''); ?>" required
-                       pattern="078[0-9]{7}" maxlength="10">
-                <small style="color: var(--text-secondary); font-size: 0.75rem; margin-top: 6px; display: block;">
-                    Enter your MTN number starting with 078
-                </small>
-            </div>
-            
-            <button type="submit" class="btn-pay" id="payBtn">
-                <span class="spinner" id="spinner"></span>
-                <span id="btnText">Pay Now • <?php echo formatPrice($booking['total_amount']); ?></span>
-            </button>
-        </form>
-        
-        <div class="security-badges">
-            <div class="badge-item">
-                <i class="bi bi-shield-check text-success"></i>
-                <span>SSL Secured</span>
-            </div>
-            <div class="badge-item">
-                <i class="bi bi-lock-fill text-success"></i>
-                <span>Encrypted</span>
-            </div>
-            <div class="badge-item">
-                <i class="bi bi-check-circle-fill text-success"></i>
-                <span>Verified</span>
+
+        <!-- Right Column - Order Summary -->
+        <div>
+            <div class="summary-card">
+                <h3 style="margin-bottom: 16px;">Order Summary</h3>
+
+                <div class="summary-row">
+                    <span>Booking Reference</span>
+                    <span><strong><?php echo $booking['booking_reference']; ?></strong></span>
+                </div>
+                <div class="summary-row">
+                    <span>Property</span>
+                    <span><?php echo sanitize($booking['stay_name']); ?></span>
+                </div>
+                <div class="summary-row">
+                    <span>Room</span>
+                    <span><?php echo sanitize($booking['room_name']); ?></span>
+                </div>
+                <div class="summary-row">
+                    <span>Dates</span>
+                    <span><?php echo date('M d', strtotime($booking['check_in_date'])); ?> - <?php echo date('M d', strtotime($booking['check_out_date'])); ?></span>
+                </div>
+                <div class="summary-row">
+                    <span>Guests</span>
+                    <span><?php echo $booking['num_guests']; ?> guests</span>
+                </div>
+                <div class="summary-row total">
+                    <span>Total Amount</span>
+                    <span><?php echo formatPrice($booking['total_amount']); ?></span>
+                </div>
             </div>
         </div>
     </div>
 </div>
 
 <script>
-document.getElementById('paymentForm').addEventListener('submit', function(e) {
-    const btn = document.getElementById('payBtn');
-    const spinner = document.getElementById('spinner');
-    const btnText = document.getElementById('btnText');
-    
-    btn.disabled = true;
-    spinner.style.display = 'block';
-    btnText.textContent = 'Processing...';
-});
+    // Initialize Stripe
+    const stripe = Stripe('<?php echo $_SESSION['stripe_publishable_key']; ?>');
+    const elements = stripe.elements();
+
+    // Create card element
+    const cardElement = elements.create('card', {
+        style: {
+            base: {
+                fontSize: '16px',
+                color: '#32325d',
+                fontFamily: 'Arial, sans-serif',
+                '::placeholder': {
+                    color: '#aab7c4'
+                }
+            },
+            invalid: {
+                color: '#c41c1c'
+            }
+        }
+    });
+    cardElement.mount('#card-element');
+
+    // Handle form submission
+    const form = document.getElementById('payment-form');
+    const submitBtn = document.getElementById('submit-btn');
+
+    form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Processing...';
+
+        const cardholderName = document.getElementById('cardholder_name').value;
+        const bookingId = '<?php echo $bookingId; ?>';
+
+        // Create payment method
+        const {
+            paymentMethod,
+            error
+        } = await stripe.createPaymentMethod({
+            type: 'card',
+            card: cardElement,
+            billing_details: {
+                name: cardholderName,
+                email: '<?php echo $booking['email']; ?>'
+            }
+        });
+
+        if (error) {
+            const errorElement = document.getElementById('card-errors');
+            errorElement.textContent = error.message;
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Pay <?php echo formatPrice($booking['total_amount']); ?>';
+        } else {
+            // Send payment method to server
+            fetch('process-payment.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        payment_method_id: paymentMethod.id,
+                        booking_id: bookingId,
+                        amount: <?php echo $booking['total_amount']; ?>
+                    }),
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        window.location.href = 'payment-success.php?booking_id=' + bookingId;
+                    } else {
+                        const errorElement = document.getElementById('card-errors');
+                        errorElement.textContent = data.error || 'Payment failed. Please try again.';
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = 'Pay <?php echo formatPrice($booking['total_amount']); ?>';
+                    }
+                })
+                .catch(error => {
+                    const errorElement = document.getElementById('card-errors');
+                    errorElement.textContent = 'An error occurred. Please try again.';
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Pay <?php echo formatPrice($booking['total_amount']); ?>';
+                });
+        }
+    });
 </script>
 
 <?php require_once 'includes/footer.php'; ?>

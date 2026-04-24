@@ -910,7 +910,6 @@ if ($type === 'stays') {
     .bkg-map-container {
         display: none;
     }
-}
 </style>
 
 <!-- Loading Spinner -->

@@ -98,7 +98,14 @@ require_once 'includes/header.php';
 
     <h1 class="success-title">Payment Successful!</h1>
     <p>Your booking has been confirmed. A confirmation email has been sent to your email address.</p>
-
+    <div class="action-buttons" style="margin-top: 30px;">
+        <a href="/gorwanda-plus/download-invoice.php?booking_id=<?php echo $bookingId; ?>" class="btn-action btn-primary" target="_blank">
+            <i class="bi bi-download"></i> Download Invoice (PDF)
+        </a>
+        <a href="/gorwanda-plus/bookings.php" class="btn-action btn-secondary">
+            <i class="bi bi-list-ul"></i> View My Bookings
+        </a>
+    </div>
     <div class="booking-details">
         <div class="detail-row">
             <strong>Booking Reference</strong>

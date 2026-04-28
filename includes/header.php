@@ -31,7 +31,20 @@ if (strpos($currentPath, '/stays') !== false) {
 // Debug - remove after fixing
 error_log("Current Path: " . $currentPath . " - Current Page: " . $currentPage);
 
-$searchType = $_GET['type'] ?? 'stays';
+// Determine search type based on current page or URL parameter
+if (isset($_GET['type'])) {
+    $searchType = $_GET['type'];
+} elseif (strpos($currentPath, '/stays') !== false || $currentPage === 'home') {
+    $searchType = 'stays';
+} elseif (strpos($currentPath, '/cars') !== false) {
+    $searchType = 'cars';
+} elseif (strpos($currentPath, '/attractions') !== false) {
+    $searchType = 'attractions';
+} elseif (strpos($currentPath, '/restaurants') !== false) {
+    $searchType = 'restaurants';
+} else {
+    $searchType = 'stays';
+}
 $currentUser = getCurrentUser();
 
 // Language options
@@ -1242,21 +1255,21 @@ $pageTitle = isset($pageTitle) ? $pageTitle . ' - GoRwanda+' : 'GoRwanda+ - Disc
             <div class="container">
                 <!-- Search Tabs -->
                 <div class="bkg-search-tabs">
-                    <a href="/gorwanda-plus/stays/" class="bkg-search-tab <?php echo $currentPage === 'stays' ? 'active' : ''; ?>">
+                    <a href="/gorwanda-plus/stays/" class="bkg-search-tab <?php echo $searchType === 'stays' ? 'active' : ''; ?>" data-type="stays">
                         <i class="bi bi-building"></i>
-                        <span><?php echo tr('stays'); ?></span>
+                        <span>Stays</span>
                     </a>
-                    <a href="/gorwanda-plus/cars/" class="bkg-search-tab <?php echo $currentPage === 'cars' ? 'active' : ''; ?>">
+                    <a href="/gorwanda-plus/cars/" class="bkg-search-tab <?php echo $searchType === 'cars' ? 'active' : ''; ?>" data-type="cars">
                         <i class="bi bi-car-front"></i>
-                        <span><?php echo tr('cars'); ?></span>
+                        <span>Cars</span>
                     </a>
-                    <a href="/gorwanda-plus/attractions/" class="bkg-search-tab <?php echo $currentPage === 'attractions' ? 'active' : ''; ?>">
+                    <a href="/gorwanda-plus/attractions/" class="bkg-search-tab <?php echo $searchType === 'attractions' ? 'active' : ''; ?>" data-type="attractions">
                         <i class="bi bi-ticket-perforated"></i>
-                        <span><?php echo tr('experiences'); ?></span>
+                        <span>Experiences</span>
                     </a>
-                    <a href="/gorwanda-plus/restaurants/" class="bkg-search-tab <?php echo $currentPage === 'restaurants' ? 'active' : ''; ?>">
+                    <a href="/gorwanda-plus/restaurants/" class="bkg-search-tab <?php echo $searchType === 'restaurants' ? 'active' : ''; ?>" data-type="restaurants">
                         <i class="bi bi-shop"></i>
-                        <span><?php echo tr('restaurants'); ?></span>
+                        <span>Restaurants</span>
                     </a>
                 </div>
 
@@ -1335,7 +1348,7 @@ $pageTitle = isset($pageTitle) ? $pageTitle . ' - GoRwanda+' : 'GoRwanda+ - Disc
                                     <?php endfor; ?>
                                 </select>
                             </div>
-                        <?php else: ?>
+                        <?php elseif ($searchType === 'restaurants'): ?>
                             <div class="bkg-search-field" style="flex: 2;">
                                 <i class="bi bi-geo-alt bkg-search-icon"></i>
                                 <input type="text" name="location" class="bkg-search-input"
@@ -1349,10 +1362,21 @@ $pageTitle = isset($pageTitle) ? $pageTitle . ' - GoRwanda+' : 'GoRwanda+ - Disc
                                     value="<?php echo sanitize($_GET['date'] ?? ''); ?>">
                             </div>
                             <div class="bkg-search-field">
+                                <i class="bi bi-clock bkg-search-icon"></i>
+                                <select name="time" class="bkg-search-select">
+                                    <option value="">Any time</option>
+                                    <option value="12:00" <?php echo ($_GET['time'] ?? '') == '12:00' ? 'selected' : ''; ?>>12:00 PM</option>
+                                    <option value="13:00" <?php echo ($_GET['time'] ?? '') == '13:00' ? 'selected' : ''; ?>>1:00 PM</option>
+                                    <option value="18:00" <?php echo ($_GET['time'] ?? '') == '18:00' ? 'selected' : ''; ?>>6:00 PM</option>
+                                    <option value="19:00" <?php echo ($_GET['time'] ?? '') == '19:00' ? 'selected' : ''; ?>>7:00 PM</option>
+                                    <option value="20:00" <?php echo ($_GET['time'] ?? '') == '20:00' ? 'selected' : ''; ?>>8:00 PM</option>
+                                </select>
+                            </div>
+                            <div class="bkg-search-field">
                                 <i class="bi bi-people bkg-search-icon"></i>
                                 <select name="guests" class="bkg-search-select">
                                     <?php for ($i = 1; $i <= 10; $i++): ?>
-                                        <option value="<?php echo $i; ?>" <?php echo ($_GET['guests'] ?? 2) == $i ? 'selected' : ''; ?>>
+                                        <option value="<?php echo $i; ?>" <?php echo (intval($_GET['guests'] ?? 2) == $i) ? 'selected' : ''; ?>>
                                             <?php echo $i . ' ' . tr($i > 1 ? 'person_many' : 'person_one'); ?>
                                         </option>
                                     <?php endfor; ?>
@@ -1430,4 +1454,22 @@ $pageTitle = isset($pageTitle) ? $pageTitle . ' - GoRwanda+' : 'GoRwanda+ - Disc
                     input.min = today;
                 });
             });
+
+            function setSearchType(type) {
+                // Update the hidden input in the search form
+                const typeInput = document.querySelector('input[name="type"]');
+                if (typeInput) {
+                    typeInput.value = type;
+                }
+                // Also update the search form action to include type
+                const searchForm = document.querySelector('.bkg-search-box').closest('form');
+                if (searchForm) {
+                    const action = searchForm.getAttribute('action');
+                    searchForm.setAttribute('action', action + '?type=' + type);
+                }
+            }
         </script>
+    </main>
+</body>
+
+</html>

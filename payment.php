@@ -20,12 +20,35 @@ if (!$bookingId) {
 $db = getDB();
 $userId = $_SESSION['user_id'];
 
-// Get booking details
+// Get booking details with dynamic content based on booking type
 $stmt = $db->prepare("
-    SELECT b.*, s.stay_name, sr.room_name, u.first_name, u.last_name, u.email
+    SELECT 
+        b.*,
+        CASE 
+            WHEN b.booking_type = 'stay' THEN s.stay_name
+            WHEN b.booking_type = 'car_rental' THEN CONCAT(cf.brand, ' ', cf.model)
+            ELSE a.attraction_name
+        END as item_name,
+        CASE 
+            WHEN b.booking_type = 'stay' THEN sr.room_name
+            WHEN b.booking_type = 'car_rental' THEN cr.company_name
+            ELSE t.tier_name
+        END as item_detail,
+        CASE 
+            WHEN b.booking_type = 'stay' THEN s.address
+            WHEN b.booking_type = 'car_rental' THEN cr.address
+            ELSE a.address
+        END as item_location,
+        u.first_name,
+        u.last_name,
+        u.email
     FROM bookings b
     LEFT JOIN stay_rooms sr ON b.stay_room_id = sr.room_id
     LEFT JOIN stays s ON sr.stay_id = s.stay_id
+    LEFT JOIN car_fleet cf ON b.car_id = cf.car_id
+    LEFT JOIN car_rentals cr ON cf.rental_id = cr.rental_id
+    LEFT JOIN attraction_tiers t ON b.attraction_tier_id = t.tier_id
+    LEFT JOIN attractions a ON t.attraction_id = a.attraction_id
     LEFT JOIN users u ON b.user_id = u.user_id
     WHERE b.booking_id = ? AND b.user_id = ? AND b.payment_status = 'pending'
 ");
@@ -36,6 +59,15 @@ if (!$booking) {
     header('Location: index.php');
     exit;
 }
+
+// Get booking type icon and labels
+$bookingTypeInfo = [
+    'stay' => ['icon' => '🏨', 'label' => 'Stay / Accommodation', 'detail_label' => 'Room', 'date_label' => 'Stay Dates', 'guest_label' => 'Guests'],
+    'car_rental' => ['icon' => '🚗', 'label' => 'Car Rental', 'detail_label' => 'Vehicle', 'date_label' => 'Rental Period', 'guest_label' => 'Driver'],
+    'attraction' => ['icon' => '🎟️', 'label' => 'Experience', 'detail_label' => 'Tier', 'date_label' => 'Date', 'guest_label' => 'Participants']
+];
+
+$typeInfo = $bookingTypeInfo[$booking['booking_type']];
 
 $pageTitle = 'Payment - ' . $booking['booking_reference'];
 $hideSearch = true;
@@ -141,6 +173,25 @@ require_once 'includes/header.php';
         font-size: 18px;
     }
 
+    .summary-divider {
+        height: 1px;
+        background: #e7e7e7;
+        margin: 12px 0;
+    }
+
+    .booking-type-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 12px;
+        background: #f0f4ff;
+        color: #0071c2;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: 600;
+        margin-bottom: 16px;
+    }
+
     .secure-badge {
         text-align: center;
         margin-top: 20px;
@@ -190,34 +241,128 @@ require_once 'includes/header.php';
             </div>
         </div>
 
-        <!-- Right Column - Order Summary -->
+        <!-- Right Column - Order Summary (Dynamic based on booking type) -->
         <div>
             <div class="summary-card">
-                <h3 style="margin-bottom: 16px;">Order Summary</h3>
+                <div class="booking-type-badge">
+                    <span><?php echo $typeInfo['icon']; ?></span>
+                    <span><?php echo $typeInfo['label']; ?></span>
+                </div>
 
+                <h3 style="margin-bottom: 16px; font-size: 16px;">Order Summary</h3>
+
+                <!-- Booking Reference -->
                 <div class="summary-row">
                     <span>Booking Reference</span>
                     <span><strong><?php echo $booking['booking_reference']; ?></strong></span>
                 </div>
-                <div class="summary-row">
-                    <span>Property</span>
-                    <span><?php echo sanitize($booking['stay_name']); ?></span>
-                </div>
-                <div class="summary-row">
-                    <span>Room</span>
-                    <span><?php echo sanitize($booking['room_name']); ?></span>
-                </div>
-                <div class="summary-row">
-                    <span>Dates</span>
-                    <span><?php echo date('M d', strtotime($booking['check_in_date'])); ?> - <?php echo date('M d', strtotime($booking['check_out_date'])); ?></span>
-                </div>
-                <div class="summary-row">
-                    <span>Guests</span>
-                    <span><?php echo $booking['num_guests']; ?> guests</span>
-                </div>
+
+                <div class="summary-divider"></div>
+
+                <!-- Dynamic Content Based on Booking Type -->
+                <?php if ($booking['booking_type'] == 'stay'): ?>
+                    <!-- Stay Booking Details -->
+                    <div class="summary-row">
+                        <span>Property</span>
+                        <span><strong><?php echo sanitize($booking['item_name']); ?></strong></span>
+                    </div>
+                    <div class="summary-row">
+                        <span>Room</span>
+                        <span><?php echo sanitize($booking['item_detail']); ?></span>
+                    </div>
+                    <div class="summary-row">
+                        <span>Location</span>
+                        <span><?php echo sanitize($booking['item_location']); ?></span>
+                    </div>
+                    <div class="summary-row">
+                        <span>Check-in</span>
+                        <span><?php echo date('M d, Y', strtotime($booking['check_in_date'])); ?></span>
+                    </div>
+                    <div class="summary-row">
+                        <span>Check-out</span>
+                        <span><?php echo date('M d, Y', strtotime($booking['check_out_date'])); ?></span>
+                    </div>
+                    <div class="summary-row">
+                        <span>Nights</span>
+                        <span><?php echo $booking['num_nights']; ?> nights</span>
+                    </div>
+                    <div class="summary-row">
+                        <span>Guests</span>
+                        <span><?php echo $booking['num_guests']; ?> guest(s)</span>
+                    </div>
+
+                <?php elseif ($booking['booking_type'] == 'car_rental'): ?>
+                    <!-- Car Rental Booking Details -->
+                    <div class="summary-row">
+                        <span>Vehicle</span>
+                        <span><strong><?php echo sanitize($booking['item_name']); ?></strong></span>
+                    </div>
+                    <div class="summary-row">
+                        <span>Rental Company</span>
+                        <span><?php echo sanitize($booking['item_detail']); ?></span>
+                    </div>
+                    <div class="summary-row">
+                        <span>Pickup Location</span>
+                        <span><?php echo sanitize($booking['pickup_location']); ?></span>
+                    </div>
+                    <div class="summary-row">
+                        <span>Pickup Date</span>
+                        <span><?php echo date('M d, Y', strtotime($booking['pickup_date'])); ?></span>
+                    </div>
+                    <div class="summary-row">
+                        <span>Return Date</span>
+                        <span><?php echo date('M d, Y', strtotime($booking['return_date'])); ?></span>
+                    </div>
+                    <div class="summary-row">
+                        <span>Duration</span>
+                        <span><?php echo $booking['num_nights']; ?> day(s)</span>
+                    </div>
+                    <div class="summary-row">
+                        <span>Driver</span>
+                        <span><?php echo sanitize($booking['first_name'] . ' ' . $booking['last_name']); ?></span>
+                    </div>
+
+                <?php elseif ($booking['booking_type'] == 'attraction'): ?>
+                    <!-- Experience Booking Details -->
+                    <div class="summary-row">
+                        <span>Experience</span>
+                        <span><strong><?php echo sanitize($booking['item_name']); ?></strong></span>
+                    </div>
+                    <div class="summary-row">
+                        <span>Tier</span>
+                        <span><?php echo sanitize($booking['item_detail']); ?></span>
+                    </div>
+                    <div class="summary-row">
+                        <span>Location</span>
+                        <span><?php echo sanitize($booking['item_location']); ?></span>
+                    </div>
+                    <div class="summary-row">
+                        <span>Date</span>
+                        <span><?php echo date('M d, Y', strtotime($booking['experience_date'])); ?></span>
+                    </div>
+                    <div class="summary-row">
+                        <span>Time</span>
+                        <span><?php echo date('g:i A', strtotime($booking['start_time'])); ?></span>
+                    </div>
+                    <div class="summary-row">
+                        <span>Participants</span>
+                        <span><?php echo $booking['num_participants']; ?> person(s)</span>
+                    </div>
+
+                <?php endif; ?>
+
+                <div class="summary-divider"></div>
+
+                <!-- Price -->
                 <div class="summary-row total">
                     <span>Total Amount</span>
                     <span><?php echo formatPrice($booking['total_amount']); ?></span>
+                </div>
+
+                <!-- Tax Note -->
+                <div class="summary-row" style="font-size: 11px; color: #6b6b6b; padding-top: 8px;">
+                    <span>Includes 18% VAT</span>
+                    <span></span>
                 </div>
             </div>
         </div>
@@ -279,7 +424,7 @@ require_once 'includes/header.php';
             submitBtn.textContent = 'Pay <?php echo formatPrice($booking['total_amount']); ?>';
         } else {
             // Send payment method to server
-            fetch('process-payment.php', {
+            fetch('/gorwanda-plus/process-payment.php', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -293,7 +438,7 @@ require_once 'includes/header.php';
                 .then(response => response.json())
                 .then(data => {
                     if (data.success) {
-                        window.location.href = 'payment-success.php?booking_id=' + bookingId;
+                        window.location.href = '/gorwanda-plus/payment-success.php?booking_id=' + bookingId;
                     } else {
                         const errorElement = document.getElementById('card-errors');
                         errorElement.textContent = data.error || 'Payment failed. Please try again.';

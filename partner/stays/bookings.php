@@ -12,82 +12,68 @@ $userId = $_SESSION['user_id'];
 // Update booking status
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
     $bookingId = intval($_POST['booking_id']);
-    $newStatus = sanitize($_POST['status']);
-    $cancellationReason = isset($_POST['cancellation_reason']) ? sanitize($_POST['cancellation_reason']) : null;
-    
-    // Verify ownership
-    $stmt = $db->prepare("
-        UPDATE bookings b
-        JOIN stay_rooms sr ON b.stay_room_id = sr.room_id
-        JOIN stays s ON sr.stay_id = s.stay_id
-        SET b.status = ?, b.cancellation_reason = ?, b.updated_at = NOW()
-        WHERE b.booking_id = ? AND s.owner_id = ?
-    ");
-    $stmt->execute([$newStatus, $cancellationReason, $bookingId, $userId]);
-    
-    $success = "Booking status updated to " . ucfirst($newStatus);
-}
+    $newStatus = $_POST['status'];
+    $cancellationReason = isset($_POST['cancellation_reason']) ? $_POST['cancellation_reason'] : null;
 
-// Send message to guest
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['send_message'])) {
-    $bookingId = intval($_POST['booking_id']);
-    $message = sanitize($_POST['message']);
-    $subject = sanitize($_POST['subject'] ?? 'Question about your booking');
-    
-    // Get booking details
+    // Verify ownership before updating
     $stmt = $db->prepare("
-        SELECT b.*, u.user_id as guest_id, u.email, u.first_name, s.stay_name
+        SELECT b.booking_id 
         FROM bookings b
         JOIN stay_rooms sr ON b.stay_room_id = sr.room_id
         JOIN stays s ON sr.stay_id = s.stay_id
-        JOIN users u ON b.user_id = u.user_id
         WHERE b.booking_id = ? AND s.owner_id = ?
     ");
     $stmt->execute([$bookingId, $userId]);
-    $booking = $stmt->fetch();
-    
-    if ($booking) {
-        // Insert message
+
+    if ($stmt->fetch()) {
         $stmt = $db->prepare("
-            INSERT INTO messages (sender_id, receiver_id, booking_id, subject, message, created_at)
-            VALUES (?, ?, ?, ?, ?, NOW())
+            UPDATE bookings 
+            SET status = ?, cancellation_reason = ?, updated_at = NOW()
+            WHERE booking_id = ?
         ");
-        $stmt->execute([$userId, $booking['guest_id'], $bookingId, $subject, $message]);
-        
-        // In production, also send email
-        $success = "Message sent to guest successfully";
+        $stmt->execute([$newStatus, $cancellationReason, $bookingId]);
+        $success = "Booking status updated to " . ucfirst($newStatus);
     }
 }
 
-// Check-in/Check-out actions
+// Check-in action
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_in'])) {
     $bookingId = intval($_POST['booking_id']);
-    
+
     $stmt = $db->prepare("
-        UPDATE bookings b
+        SELECT b.booking_id 
+        FROM bookings b
         JOIN stay_rooms sr ON b.stay_room_id = sr.room_id
         JOIN stays s ON sr.stay_id = s.stay_id
-        SET b.status = 'checked_in', b.updated_at = NOW()
         WHERE b.booking_id = ? AND s.owner_id = ? AND b.status = 'confirmed'
     ");
     $stmt->execute([$bookingId, $userId]);
-    
-    $success = "Guest checked in successfully";
+
+    if ($stmt->fetch()) {
+        $stmt = $db->prepare("UPDATE bookings SET status = 'completed', updated_at = NOW() WHERE booking_id = ?");
+        $stmt->execute([$bookingId]);
+        $success = "Guest checked in successfully. Booking marked as completed.";
+    }
 }
 
+// Check-out action
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_out'])) {
     $bookingId = intval($_POST['booking_id']);
-    
+
     $stmt = $db->prepare("
-        UPDATE bookings b
+        SELECT b.booking_id 
+        FROM bookings b
         JOIN stay_rooms sr ON b.stay_room_id = sr.room_id
         JOIN stays s ON sr.stay_id = s.stay_id
-        SET b.status = 'completed', b.updated_at = NOW()
-        WHERE b.booking_id = ? AND s.owner_id = ? AND b.status = 'checked_in'
+        WHERE b.booking_id = ? AND s.owner_id = ? AND b.status = 'confirmed'
     ");
     $stmt->execute([$bookingId, $userId]);
-    
-    $success = "Guest checked out successfully";
+
+    if ($stmt->fetch()) {
+        $stmt = $db->prepare("UPDATE bookings SET status = 'completed', updated_at = NOW() WHERE booking_id = ?");
+        $stmt->execute([$bookingId]);
+        $success = "Guest checked out successfully. Booking marked as completed.";
+    }
 }
 
 // ============================================
@@ -95,42 +81,58 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_out'])) {
 // ============================================
 
 $propertyId = isset($_GET['property']) ? intval($_GET['property']) : 0;
-$status = isset($_GET['status']) ? sanitize($_GET['status']) : 'all';
-$dateRange = isset($_GET['date_range']) ? sanitize($_GET['date_range']) : 'upcoming';
-$search = isset($_GET['search']) ? sanitize($_GET['search']) : '';
+$status = isset($_GET['status']) ? $_GET['status'] : 'all';
+$dateRange = isset($_GET['date_range']) ? $_GET['date_range'] : 'all';
+$search = isset($_GET['search']) ? $_GET['search'] : '';
 $fromDate = isset($_GET['from_date']) ? $_GET['from_date'] : '';
 $toDate = isset($_GET['to_date']) ? $_GET['to_date'] : '';
 
-// Build query conditions
-$conditions = ["s.owner_id = ?"];
+// ============================================
+// GET PROPERTIES FOR FILTER
+// ============================================
+
+$stmt = $db->prepare("SELECT stay_id, stay_name FROM stays WHERE owner_id = ? ORDER BY stay_name");
+$stmt->execute([$userId]);
+$properties = $stmt->fetchAll();
+
+// ============================================
+// BUILD BOOKINGS QUERY
+// ============================================
+
+$whereConditions = ["s.owner_id = ?"];
 $params = [$userId];
 
 if ($propertyId > 0) {
-    $conditions[] = "s.stay_id = ?";
+    $whereConditions[] = "s.stay_id = ?";
     $params[] = $propertyId;
 }
 
-if ($status !== 'all') {
-    $conditions[] = "b.status = ?";
+// Map status values
+$validStatuses = ['pending', 'confirmed', 'completed', 'cancelled', 'no_show'];
+if ($status !== 'all' && in_array($status, $validStatuses)) {
+    $whereConditions[] = "b.status = ?";
     $params[] = $status;
 }
 
+// Date range filter
 if ($dateRange === 'upcoming') {
-    $conditions[] = "b.check_in_date >= CURDATE()";
-    $conditions[] = "b.status IN ('confirmed', 'pending')";
+    $whereConditions[] = "b.check_in_date >= CURDATE()";
+    $whereConditions[] = "b.status IN ('confirmed', 'pending')";
 } elseif ($dateRange === 'current') {
-    $conditions[] = "CURDATE() BETWEEN b.check_in_date AND b.check_out_date";
-    $conditions[] = "b.status IN ('confirmed', 'checked_in')";
+    $whereConditions[] = "CURDATE() BETWEEN b.check_in_date AND b.check_out_date";
+    $whereConditions[] = "b.status IN ('confirmed', 'pending')";
 } elseif ($dateRange === 'past') {
-    $conditions[] = "b.check_out_date < CURDATE()";
+    $whereConditions[] = "b.check_out_date < CURDATE()";
 } elseif ($dateRange === 'custom' && $fromDate && $toDate) {
-    $conditions[] = "b.created_at BETWEEN ? AND ?";
+    $whereConditions[] = "b.created_at BETWEEN ? AND ?";
     $params[] = $fromDate . ' 00:00:00';
     $params[] = $toDate . ' 23:59:59';
 }
+// 'all' - no date filter
 
-if ($search) {
-    $conditions[] = "(b.booking_reference LIKE ? OR u.first_name LIKE ? OR u.last_name LIKE ? OR u.email LIKE ?)";
+// Search filter
+if (!empty($search)) {
+    $whereConditions[] = "(b.booking_reference LIKE ? OR u.first_name LIKE ? OR u.last_name LIKE ? OR u.email LIKE ?)";
     $searchTerm = "%$search%";
     $params[] = $searchTerm;
     $params[] = $searchTerm;
@@ -138,19 +140,13 @@ if ($search) {
     $params[] = $searchTerm;
 }
 
-$whereClause = implode(' AND ', $conditions);
+$whereClause = implode(' AND ', $whereConditions);
 
 // ============================================
-// GET BOOKINGS DATA
+// FETCH BOOKINGS
 // ============================================
 
-// Get all properties for filter
-$stmt = $db->prepare("SELECT stay_id, stay_name FROM stays WHERE owner_id = ? ORDER BY stay_name");
-$stmt->execute([$userId]);
-$properties = $stmt->fetchAll();
-
-// Get bookings
-$stmt = $db->prepare("
+$sql = "
     SELECT 
         b.*,
         s.stay_id,
@@ -166,65 +162,74 @@ $stmt = $db->prepare("
         u.email as guest_email,
         u.phone as guest_phone,
         DATEDIFF(b.check_out_date, b.check_in_date) as nights,
-        DATEDIFF(b.check_in_date, CURDATE()) as days_until_checkin,
-        CASE 
-            WHEN b.status = 'confirmed' AND b.check_in_date = CURDATE() THEN 'check-in-today'
-            WHEN b.status = 'confirmed' AND b.check_in_date < CURDATE() AND b.check_out_date > CURDATE() THEN 'active'
-            WHEN b.status = 'checked_in' AND b.check_out_date = CURDATE() THEN 'check-out-today'
-            ELSE NULL
-        END as alert
+        DATEDIFF(b.check_in_date, CURDATE()) as days_until_checkin
     FROM bookings b
     JOIN stay_rooms sr ON b.stay_room_id = sr.room_id
     JOIN stays s ON sr.stay_id = s.stay_id
     LEFT JOIN users u ON b.user_id = u.user_id
     WHERE $whereClause
-    ORDER BY 
-        CASE 
-            WHEN b.status = 'pending' THEN 1
-            WHEN b.status = 'confirmed' AND b.check_in_date >= CURDATE() THEN 2
-            WHEN b.status = 'checked_in' THEN 3
-            WHEN b.status = 'completed' THEN 4
-            WHEN b.status = 'cancelled' THEN 5
-            ELSE 6
-        END,
-        b.check_in_date ASC
-");
+    ORDER BY b.created_at DESC
+";
 
+$stmt = $db->prepare($sql);
 $stmt->execute($params);
 $bookings = $stmt->fetchAll();
 
-// Get statistics
+// ============================================
+// CALCULATE STATISTICS
+// ============================================
+
 $stats = [
-    'total' => count($bookings),
+    'total' => 0,
     'pending' => 0,
     'confirmed' => 0,
-    'checked_in' => 0,
     'completed' => 0,
     'cancelled' => 0,
+    'no_show' => 0,
     'today_checkins' => 0,
     'today_checkouts' => 0,
     'total_revenue' => 0,
     'avg_booking_value' => 0
 ];
 
+$today = date('Y-m-d');
+
 foreach ($bookings as $booking) {
-    $stats[$booking['status']]++;
-    if ($booking['status'] === 'confirmed' || $booking['status'] === 'completed' || $booking['status'] === 'checked_in') {
+    $stats['total']++;
+
+    if (isset($stats[$booking['status']])) {
+        $stats[$booking['status']]++;
+    }
+
+    if (in_array($booking['status'], ['confirmed', 'completed'])) {
         $stats['total_revenue'] += $booking['total_amount'];
     }
-    if ($booking['check_in_date'] === date('Y-m-d') && $booking['status'] === 'confirmed') {
+
+    if ($booking['status'] === 'confirmed' && $booking['check_in_date'] === $today) {
         $stats['today_checkins']++;
     }
-    if ($booking['check_out_date'] === date('Y-m-d') && $booking['status'] === 'checked_in') {
+
+    if ($booking['status'] === 'confirmed' && $booking['check_out_date'] === $today) {
         $stats['today_checkouts']++;
     }
 }
 
-$stats['avg_booking_value'] = $stats['total'] > 0 ? $stats['total_revenue'] / $stats['total'] : 0;
+if ($stats['total'] > 0) {
+    $stats['avg_booking_value'] = $stats['total_revenue'] / $stats['total'];
+}
 
-// Get upcoming check-ins (next 7 days)
+// ============================================
+// FETCH UPCOMING CHECK-INS (NEXT 7 DAYS)
+// ============================================
+
 $stmt = $db->prepare("
-    SELECT b.*, s.stay_name, sr.room_name, u.first_name, u.last_name
+    SELECT 
+        b.*, 
+        s.stay_name, 
+        sr.room_name, 
+        u.first_name, 
+        u.last_name,
+        DATEDIFF(b.check_in_date, CURDATE()) as days_until
     FROM bookings b
     JOIN stay_rooms sr ON b.stay_room_id = sr.room_id
     JOIN stays s ON sr.stay_id = s.stay_id
@@ -237,7 +242,10 @@ $stmt = $db->prepare("
 $stmt->execute([$userId]);
 $upcomingCheckins = $stmt->fetchAll();
 
-// Get calendar data for the next 30 days
+// ============================================
+// CALENDAR DATA (NEXT 30 DAYS)
+// ============================================
+
 $stmt = $db->prepare("
     SELECT 
         b.check_in_date as date,
@@ -263,7 +271,6 @@ foreach ($calendarData as $item) {
 $statusLabels = [
     'pending' => ['Pending', 'warning'],
     'confirmed' => ['Confirmed', 'success'],
-    'checked_in' => ['Checked In', 'info'],
     'completed' => ['Completed', 'secondary'],
     'cancelled' => ['Cancelled', 'danger'],
     'no_show' => ['No Show', 'dark']
@@ -271,625 +278,491 @@ $statusLabels = [
 ?>
 
 <style>
-/* Bookings Specific Styles */
-.bookings-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 24px;
-    flex-wrap: wrap;
-    gap: 15px;
-}
-
-.bookings-title h1 {
-    font-size: 1.5rem;
-    font-weight: 700;
-    color: var(--booking-text);
-    margin: 0 0 4px 0;
-}
-
-.bookings-title p {
-    font-size: 0.8125rem;
-    color: var(--booking-text-light);
-    margin: 0;
-}
-
-/* Stats Grid */
-.stats-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 16px;
-    margin-bottom: 24px;
-}
-
-.stat-card {
-    background: white;
-    border-radius: var(--radius-md);
-    padding: 20px;
-    border: 1px solid var(--booking-border);
-}
-
-.stat-value {
-    font-size: 1.5rem;
-    font-weight: 700;
-    color: var(--booking-blue);
-    margin-bottom: 4px;
-}
-
-.stat-label {
-    font-size: 0.75rem;
-    color: var(--booking-text-light);
-    text-transform: uppercase;
-    letter-spacing: 0.3px;
-}
-
-.stat-trend {
-    font-size: 0.6875rem;
-    margin-top: 8px;
-    padding-top: 8px;
-    border-top: 1px solid var(--booking-border);
-    display: flex;
-    justify-content: space-between;
-}
-
-.trend-up { color: var(--booking-success); }
-.trend-down { color: var(--booking-danger); }
-
-/* Filter Bar */
-.filter-bar {
-    background: white;
-    border-radius: var(--radius-md);
-    border: 1px solid var(--booking-border);
-    padding: 16px 20px;
-    margin-bottom: 24px;
-    display: flex;
-    gap: 15px;
-    flex-wrap: wrap;
-    align-items: center;
-}
-
-.filter-group {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-}
-
-.filter-label {
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: var(--booking-text-light);
-    text-transform: uppercase;
-}
-
-.filter-select {
-    padding: 8px 12px;
-    border: 1px solid var(--booking-border);
-    border-radius: var(--radius-sm);
-    font-size: 0.8125rem;
-    background: white;
-    min-width: 150px;
-}
-
-.filter-input {
-    padding: 8px 12px;
-    border: 1px solid var(--booking-border);
-    border-radius: var(--radius-sm);
-    font-size: 0.8125rem;
-    width: 200px;
-}
-
-.search-box {
-    position: relative;
-    flex: 1;
-    min-width: 250px;
-}
-
-.search-box i {
-    position: absolute;
-    left: 12px;
-    top: 50%;
-    transform: translateY(-50%);
-    color: var(--booking-text-light);
-}
-
-.search-box input {
-    width: 100%;
-    padding: 10px 16px 10px 38px;
-    border: 1px solid var(--booking-border);
-    border-radius: var(--radius-sm);
-    font-size: 0.8125rem;
-}
-
-/* Quick Actions */
-.quick-actions {
-    display: flex;
-    gap: 10px;
-    margin-bottom: 24px;
-    flex-wrap: wrap;
-}
-
-.quick-action-card {
-    flex: 1;
-    min-width: 200px;
-    background: white;
-    border: 1px solid var(--booking-border);
-    border-radius: var(--radius-md);
-    padding: 16px;
-    display: flex;
-    align-items: center;
-    gap: 15px;
-    transition: all 0.2s;
-    cursor: pointer;
-}
-
-.quick-action-card:hover {
-    border-color: var(--booking-blue);
-    box-shadow: var(--shadow-sm);
-}
-
-.quick-action-icon {
-    width: 48px;
-    height: 48px;
-    border-radius: 50%;
-    background: var(--booking-light-blue);
-    color: var(--booking-blue);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 1.25rem;
-}
-
-.quick-action-info h4 {
-    font-size: 1rem;
-    font-weight: 700;
-    margin-bottom: 4px;
-}
-
-.quick-action-info p {
-    font-size: 0.75rem;
-    color: var(--booking-text-light);
-}
-
-/* Bookings Table */
-.bookings-table-container {
-    background: white;
-    border-radius: var(--radius-md);
-    border: 1px solid var(--booking-border);
-    overflow: hidden;
-    margin-bottom: 24px;
-}
-
-.bookings-table {
-    width: 100%;
-    border-collapse: collapse;
-}
-
-.bookings-table th {
-    text-align: left;
-    padding: 16px 20px;
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: var(--booking-text-light);
-    text-transform: uppercase;
-    letter-spacing: 0.3px;
-    background: var(--booking-gray);
-    border-bottom: 1px solid var(--booking-border);
-}
-
-.bookings-table td {
-    padding: 16px 20px;
-    border-bottom: 1px solid var(--booking-border);
-    font-size: 0.8125rem;
-    vertical-align: middle;
-}
-
-.bookings-table tr:last-child td {
-    border-bottom: none;
-}
-
-.bookings-table tr:hover td {
-    background: var(--booking-light-blue);
-}
-
-.bookings-table tr.alert-checkin {
-    background: #fff4e6;
-}
-
-.bookings-table tr.alert-checkout {
-    background: #e6f4ea;
-}
-
-.booking-ref {
-    font-family: monospace;
-    font-weight: 600;
-    color: var(--booking-blue);
-    font-size: 0.8125rem;
-}
-
-.guest-info {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-
-.guest-avatar {
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    background: var(--booking-light-blue);
-    color: var(--booking-blue);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: 600;
-    font-size: 0.875rem;
-}
-
-.guest-details {
-    display: flex;
-    flex-direction: column;
-}
-
-.guest-name {
-    font-weight: 600;
-    margin-bottom: 2px;
-}
-
-.guest-email {
-    font-size: 0.6875rem;
-    color: var(--booking-text-light);
-}
-
-.property-info {
-    display: flex;
-    flex-direction: column;
-}
-
-.property-name {
-    font-weight: 600;
-    margin-bottom: 2px;
-}
-
-.room-name {
-    font-size: 0.6875rem;
-    color: var(--booking-text-light);
-}
-
-.date-cell {
-    display: flex;
-    flex-direction: column;
-}
-
-.date-main {
-    font-weight: 600;
-    margin-bottom: 2px;
-}
-
-.date-range {
-    font-size: 0.6875rem;
-    color: var(--booking-text-light);
-}
-
-.status-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 6px 12px;
-    border-radius: 100px;
-    font-size: 0.6875rem;
-    font-weight: 600;
-    text-transform: capitalize;
-}
-
-.status-badge.warning { background: #fff4e6; color: var(--booking-warning); }
-.status-badge.success { background: #e6f4ea; color: var(--booking-success); }
-.status-badge.info { background: #e1f5fe; color: #0288d1; }
-.status-badge.secondary { background: var(--booking-gray); color: var(--booking-text-light); }
-.status-badge.danger { background: #fce8e8; color: var(--booking-danger); }
-.status-badge.dark { background: #e0e0e0; color: #424242; }
-
-.amount-cell {
-    font-weight: 700;
-    color: var(--booking-success);
-}
-
-.action-cell {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-}
-
-.action-btn {
-    padding: 6px 12px;
-    border: 1px solid var(--booking-border);
-    border-radius: var(--radius-sm);
-    background: white;
-    color: var(--booking-text);
-    font-size: 0.6875rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s;
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    text-decoration: none;
-}
-
-.action-btn:hover {
-    background: var(--booking-light-blue);
-    border-color: var(--booking-blue);
-    color: var(--booking-blue);
-}
-
-.action-btn.warning:hover {
-    background: #fff4e6;
-    border-color: var(--booking-warning);
-    color: var(--booking-warning);
-}
-
-.action-btn.success:hover {
-    background: #e6f4ea;
-    border-color: var(--booking-success);
-    color: var(--booking-success);
-}
-
-.action-btn.danger:hover {
-    background: #fce8e8;
-    border-color: var(--booking-danger);
-    color: var(--booking-danger);
-}
-
-/* Upcoming Calendar */
-.calendar-mini {
-    background: white;
-    border-radius: var(--radius-md);
-    border: 1px solid var(--booking-border);
-    padding: 20px;
-    margin-bottom: 24px;
-}
-
-.calendar-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 16px;
-}
-
-.calendar-title {
-    font-size: 1rem;
-    font-weight: 700;
-}
-
-.calendar-grid {
-    display: grid;
-    grid-template-columns: repeat(7, 1fr);
-    gap: 8px;
-    text-align: center;
-}
-
-.calendar-day {
-    padding: 10px;
-    border-radius: var(--radius-sm);
-    font-size: 0.75rem;
-    position: relative;
-}
-
-.calendar-day.has-checkins {
-    background: var(--booking-light-blue);
-    color: var(--booking-blue);
-    font-weight: 600;
-}
-
-.calendar-day.has-checkins::after {
-    content: attr(data-count);
-    position: absolute;
-    top: -5px;
-    right: -5px;
-    background: var(--booking-blue);
-    color: white;
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    font-size: 0.625rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-/* Pagination */
-.pagination {
-    display: flex;
-    justify-content: center;
-    gap: 8px;
-    margin-top: 20px;
-}
-
-.page-item {
-    list-style: none;
-}
-
-.page-link {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 36px;
-    height: 36px;
-    border: 1px solid var(--booking-border);
-    border-radius: var(--radius-sm);
-    color: var(--booking-text);
-    text-decoration: none;
-    font-size: 0.8125rem;
-    transition: all 0.2s;
-}
-
-.page-link:hover,
-.page-link.active {
-    background: var(--booking-blue);
-    border-color: var(--booking-blue);
-    color: white;
-}
-
-/* Modal Styles */
-.modal {
-    display: none;
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0,0,0,0.5);
-    z-index: 9999;
-    align-items: center;
-    justify-content: center;
-    padding: 20px;
-}
-
-.modal.active {
-    display: flex;
-}
-
-.modal-content {
-    background: white;
-    border-radius: var(--radius-md);
-    width: 100%;
-    max-width: 600px;
-    max-height: 90vh;
-    overflow-y: auto;
-    box-shadow: var(--shadow-lg);
-}
-
-.modal-header {
-    padding: 20px 24px;
-    border-bottom: 1px solid var(--booking-border);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    position: sticky;
-    top: 0;
-    background: white;
-    z-index: 10;
-}
-
-.modal-header h3 {
-    font-size: 1.125rem;
-    font-weight: 700;
-    color: var(--booking-text);
-    margin: 0;
-}
-
-.modal-close {
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    border: none;
-    background: var(--booking-gray);
-    color: var(--booking-text);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    transition: all 0.2s;
-}
-
-.modal-close:hover {
-    background: var(--booking-danger);
-    color: white;
-}
-
-.modal-body {
-    padding: 24px;
-}
-
-.modal-footer {
-    padding: 20px 24px;
-    border-top: 1px solid var(--booking-border);
-    display: flex;
-    justify-content: flex-end;
-    gap: 12px;
-    background: var(--booking-gray);
-    position: sticky;
-    bottom: 0;
-}
-
-/* Booking Details */
-.booking-detail-section {
-    margin-bottom: 24px;
-}
-
-.booking-detail-title {
-    font-size: 0.875rem;
-    font-weight: 700;
-    margin-bottom: 12px;
-    color: var(--booking-blue);
-    text-transform: uppercase;
-    letter-spacing: 0.3px;
-}
-
-.booking-detail-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 16px;
-    background: var(--booking-gray);
-    padding: 16px;
-    border-radius: var(--radius-sm);
-}
-
-.detail-row {
-    display: flex;
-    flex-direction: column;
-}
-
-.detail-label {
-    font-size: 0.6875rem;
-    color: var(--booking-text-light);
-    text-transform: uppercase;
-    margin-bottom: 4px;
-}
-
-.detail-value {
-    font-size: 0.9375rem;
-    font-weight: 600;
-}
-
-/* Responsive */
-@media (max-width: 1200px) {
+    /* Bookings Specific Styles */
+    .bookings-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 24px;
+        flex-wrap: wrap;
+        gap: 15px;
+    }
+
+    .bookings-title h1 {
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: #1a1a1a;
+        margin: 0 0 4px 0;
+    }
+
+    .bookings-title p {
+        font-size: 0.8125rem;
+        color: #666;
+        margin: 0;
+    }
+
+    /* Stats Grid */
     .stats-grid {
-        grid-template-columns: repeat(2, 1fr);
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 16px;
+        margin-bottom: 24px;
     }
-}
 
-@media (max-width: 768px) {
-    .stats-grid,
-    .quick-actions {
-        grid-template-columns: 1fr;
+    .stat-card {
+        background: white;
+        border-radius: 12px;
+        padding: 20px;
+        border: 1px solid #e5e7eb;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
     }
-    
+
+    .stat-value {
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: #003b95;
+        margin-bottom: 4px;
+    }
+
+    .stat-label {
+        font-size: 0.75rem;
+        color: #666;
+        text-transform: uppercase;
+        letter-spacing: 0.3px;
+    }
+
+    .stat-trend {
+        font-size: 0.6875rem;
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px solid #e5e7eb;
+        display: flex;
+        justify-content: space-between;
+    }
+
+    /* Filter Bar */
     .filter-bar {
-        flex-direction: column;
-        align-items: stretch;
+        background: white;
+        border-radius: 12px;
+        border: 1px solid #e5e7eb;
+        padding: 16px 20px;
+        margin-bottom: 24px;
+        display: flex;
+        gap: 15px;
+        flex-wrap: wrap;
+        align-items: center;
     }
-    
+
     .filter-group {
-        flex-direction: column;
-        align-items: stretch;
+        display: flex;
+        align-items: center;
+        gap: 8px;
     }
-    
+
+    .filter-label {
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: #666;
+        text-transform: uppercase;
+    }
+
     .filter-select,
-    .filter-input,
+    .filter-input {
+        padding: 8px 12px;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        font-size: 0.8125rem;
+        background: white;
+        min-width: 150px;
+    }
+
     .search-box {
+        position: relative;
+        flex: 1;
+        min-width: 250px;
+    }
+
+    .search-box i {
+        position: absolute;
+        left: 12px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: #999;
+    }
+
+    .search-box input {
         width: 100%;
+        padding: 10px 16px 10px 38px;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        font-size: 0.8125rem;
     }
-    
+
+    /* Quick Actions */
+    .quick-actions {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 24px;
+        flex-wrap: wrap;
+    }
+
+    .quick-action-card {
+        flex: 1;
+        min-width: 200px;
+        background: white;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 16px;
+        display: flex;
+        align-items: center;
+        gap: 15px;
+        transition: all 0.2s;
+        cursor: pointer;
+    }
+
+    .quick-action-card:hover {
+        border-color: #003b95;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+
+    .quick-action-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        background: #e8f0fe;
+        color: #003b95;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.25rem;
+    }
+
+    .quick-action-info h4 {
+        font-size: 1rem;
+        font-weight: 700;
+        margin: 0 0 4px 0;
+    }
+
+    .quick-action-info p {
+        font-size: 0.75rem;
+        color: #666;
+        margin: 0;
+    }
+
+    /* Bookings Table */
+    .bookings-table-container {
+        background: white;
+        border-radius: 12px;
+        border: 1px solid #e5e7eb;
+        overflow: hidden;
+        margin-bottom: 24px;
+    }
+
     .bookings-table {
-        display: block;
-        overflow-x: auto;
+        width: 100%;
+        border-collapse: collapse;
     }
-    
-    .booking-detail-grid {
-        grid-template-columns: 1fr;
+
+    .bookings-table th {
+        text-align: left;
+        padding: 16px 20px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: #666;
+        text-transform: uppercase;
+        letter-spacing: 0.3px;
+        background: #f9fafb;
+        border-bottom: 1px solid #e5e7eb;
     }
-}
+
+    .bookings-table td {
+        padding: 16px 20px;
+        border-bottom: 1px solid #e5e7eb;
+        font-size: 0.8125rem;
+        vertical-align: middle;
+    }
+
+    .bookings-table tr:hover td {
+        background: #f8faff;
+    }
+
+    .booking-ref {
+        font-family: monospace;
+        font-weight: 600;
+        color: #003b95;
+        font-size: 0.8125rem;
+    }
+
+    .guest-info {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .guest-avatar {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: #e8f0fe;
+        color: #003b95;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 600;
+        font-size: 0.875rem;
+    }
+
+    .guest-name {
+        font-weight: 600;
+    }
+
+    .guest-email {
+        font-size: 0.6875rem;
+        color: #666;
+    }
+
+    .property-name {
+        font-weight: 600;
+    }
+
+    .room-name {
+        font-size: 0.6875rem;
+        color: #666;
+    }
+
+    .date-main {
+        font-weight: 600;
+    }
+
+    .date-range {
+        font-size: 0.6875rem;
+        color: #666;
+    }
+
+    .status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 6px 12px;
+        border-radius: 100px;
+        font-size: 0.6875rem;
+        font-weight: 600;
+        text-transform: capitalize;
+    }
+
+    .status-badge.warning {
+        background: #fff4e6;
+        color: #e67e22;
+    }
+
+    .status-badge.success {
+        background: #e6f4ea;
+        color: #008009;
+    }
+
+    .status-badge.secondary {
+        background: #f3f4f6;
+        color: #666;
+    }
+
+    .status-badge.danger {
+        background: #fce8e8;
+        color: #e21111;
+    }
+
+    .status-badge.dark {
+        background: #e5e7eb;
+        color: #424242;
+    }
+
+    .amount-cell {
+        font-weight: 700;
+        color: #008009;
+    }
+
+    .action-cell {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+
+    .action-btn {
+        padding: 6px 12px;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        background: white;
+        color: #1a1a1a;
+        font-size: 0.6875rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+    }
+
+    .action-btn:hover {
+        background: #e8f0fe;
+        border-color: #003b95;
+        color: #003b95;
+    }
+
+    .action-btn.danger-btn:hover {
+        background: #fce8e8;
+        border-color: #e21111;
+        color: #e21111;
+    }
+
+    /* Calendar Mini */
+    .calendar-mini {
+        background: white;
+        border-radius: 12px;
+        border: 1px solid #e5e7eb;
+        padding: 20px;
+        margin-bottom: 24px;
+    }
+
+    .calendar-title {
+        font-size: 1rem;
+        font-weight: 700;
+        margin: 0;
+    }
+
+    .calendar-grid {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        gap: 8px;
+        text-align: center;
+    }
+
+    .calendar-day {
+        padding: 10px;
+        border-radius: 8px;
+        font-size: 0.75rem;
+        position: relative;
+        background: #f9fafb;
+    }
+
+    .calendar-day.has-checkins {
+        background: #e8f0fe;
+        color: #003b95;
+        font-weight: 600;
+    }
+
+    /* Alert Messages */
+    .alert {
+        padding: 16px 20px;
+        border-radius: 12px;
+        margin-bottom: 20px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .alert-success {
+        background: #e6f4ea;
+        color: #008009;
+        border: 1px solid #b7dfc4;
+    }
+
+    /* Buttons */
+    .btn-primary {
+        background: #003b95;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 8px;
+        font-weight: 600;
+        cursor: pointer;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 0.875rem;
+    }
+
+    .btn-primary:hover {
+        background: #002d73;
+    }
+
+    .btn-secondary {
+        background: #f3f4f6;
+        color: #1a1a1a;
+        border: 1px solid #e5e7eb;
+        padding: 10px 20px;
+        border-radius: 8px;
+        font-weight: 600;
+        cursor: pointer;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 0.875rem;
+    }
+
+    .btn-secondary:hover {
+        background: #e5e7eb;
+    }
+
+    .btn-outline {
+        background: white;
+        color: #003b95;
+        border: 1px solid #003b95;
+        padding: 10px 20px;
+        border-radius: 8px;
+        font-weight: 600;
+        cursor: pointer;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 0.875rem;
+    }
+
+    .btn-outline:hover {
+        background: #e8f0fe;
+    }
+
+    .btn-sm {
+        padding: 6px 12px;
+        font-size: 0.75rem;
+    }
+
+    /* Responsive */
+    @media (max-width: 1200px) {
+        .stats-grid {
+            grid-template-columns: repeat(2, 1fr);
+        }
+    }
+
+    @media (max-width: 768px) {
+
+        .stats-grid,
+        .quick-actions {
+            grid-template-columns: 1fr;
+        }
+
+        .filter-bar {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .filter-group {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .filter-select,
+        .filter-input,
+        .search-box {
+            width: 100%;
+        }
+
+        .bookings-table {
+            display: block;
+            overflow-x: auto;
+        }
+    }
 </style>
 
 <div class="bookings-header">
@@ -904,21 +777,26 @@ $statusLabels = [
     </div>
 </div>
 
+<!-- Message Display -->
+<?php if (isset($success)): ?>
+    <div class="alert alert-success">
+        <i class="bi bi-check-circle-fill"></i>
+        <?php echo htmlspecialchars($success); ?>
+        <button onclick="this.parentElement.remove()" style="margin-left: auto; background: none; border: none; cursor: pointer; font-size: 1.2rem;">&times;</button>
+    </div>
+<?php endif; ?>
+
 <!-- Stats Grid -->
 <div class="stats-grid">
     <div class="stat-card">
         <div class="stat-value"><?php echo $stats['total']; ?></div>
         <div class="stat-label">Total Bookings</div>
         <div class="stat-trend">
-            <span class="<?php echo $stats['pending'] > 0 ? 'trend-up' : ''; ?>">
-                <?php echo $stats['pending']; ?> pending
-            </span>
-            <span class="<?php echo $stats['confirmed'] > 0 ? 'trend-up' : ''; ?>">
-                <?php echo $stats['confirmed']; ?> confirmed
-            </span>
+            <span><?php echo $stats['pending']; ?> pending</span>
+            <span><?php echo $stats['confirmed']; ?> confirmed</span>
         </div>
     </div>
-    
+
     <div class="stat-card">
         <div class="stat-value"><?php echo $stats['today_checkins']; ?></div>
         <div class="stat-label">Check-ins Today</div>
@@ -926,7 +804,7 @@ $statusLabels = [
             <span><?php echo $stats['today_checkouts']; ?> check-outs</span>
         </div>
     </div>
-    
+
     <div class="stat-card">
         <div class="stat-value"><?php echo count($upcomingCheckins); ?></div>
         <div class="stat-label">Upcoming (7 days)</div>
@@ -934,12 +812,12 @@ $statusLabels = [
             <span>Next: <?php echo !empty($upcomingCheckins) ? date('M d', strtotime($upcomingCheckins[0]['check_in_date'])) : 'None'; ?></span>
         </div>
     </div>
-    
+
     <div class="stat-card">
-        <div class="stat-value"><?php echo formatPrice($stats['total_revenue']); ?></div>
+        <div class="stat-value"><?php echo number_format($stats['total_revenue']); ?> RWF</div>
         <div class="stat-label">Total Revenue</div>
         <div class="stat-trend">
-            <span>Avg: <?php echo formatPrice($stats['avg_booking_value']); ?></span>
+            <span>Avg: <?php echo number_format($stats['avg_booking_value']); ?> RWF</span>
         </div>
     </div>
 </div>
@@ -955,7 +833,7 @@ $statusLabels = [
             <p>Require your attention</p>
         </div>
     </div>
-    
+
     <div class="quick-action-card" onclick="filterByStatus('confirmed')">
         <div class="quick-action-icon">
             <i class="bi bi-check-circle"></i>
@@ -965,8 +843,8 @@ $statusLabels = [
             <p>Upcoming stays</p>
         </div>
     </div>
-    
-    <div class="quick-action-card" onclick="filterByDate('today')">
+
+    <div class="quick-action-card" onclick="filterByDate('current')">
         <div class="quick-action-icon">
             <i class="bi bi-calendar-day"></i>
         </div>
@@ -975,107 +853,103 @@ $statusLabels = [
             <p>Check-ins & check-outs</p>
         </div>
     </div>
-    
-    <div class="quick-action-card" onclick="filterByStatus('checked_in')">
+
+    <div class="quick-action-card" onclick="filterByStatus('completed')">
         <div class="quick-action-icon">
             <i class="bi bi-door-open"></i>
         </div>
         <div class="quick-action-info">
-            <h4><?php echo $stats['checked_in']; ?> In-house</h4>
-            <p>Currently staying</p>
+            <h4><?php echo $stats['completed']; ?> Completed</h4>
+            <p>Past stays</p>
         </div>
     </div>
 </div>
 
 <!-- Filter Bar -->
-<form method="GET" class="filter-bar">
+<form method="GET" action="bookings.php" class="filter-bar">
     <div class="filter-group">
         <span class="filter-label">Property:</span>
         <select name="property" class="filter-select" onchange="this.form.submit()">
             <option value="0">All Properties</option>
             <?php foreach ($properties as $prop): ?>
-            <option value="<?php echo $prop['stay_id']; ?>" <?php echo $propertyId == $prop['stay_id'] ? 'selected' : ''; ?>>
-                <?php echo sanitize($prop['stay_name']); ?>
-            </option>
+                <option value="<?php echo $prop['stay_id']; ?>" <?php echo $propertyId == $prop['stay_id'] ? 'selected' : ''; ?>>
+                    <?php echo htmlspecialchars($prop['stay_name']); ?>
+                </option>
             <?php endforeach; ?>
         </select>
     </div>
-    
+
     <div class="filter-group">
         <span class="filter-label">Status:</span>
         <select name="status" class="filter-select" onchange="this.form.submit()">
-            <option value="all">All Status</option>
+            <option value="all" <?php echo $status == 'all' ? 'selected' : ''; ?>>All Status</option>
             <option value="pending" <?php echo $status == 'pending' ? 'selected' : ''; ?>>Pending</option>
             <option value="confirmed" <?php echo $status == 'confirmed' ? 'selected' : ''; ?>>Confirmed</option>
-            <option value="checked_in" <?php echo $status == 'checked_in' ? 'selected' : ''; ?>>Checked In</option>
             <option value="completed" <?php echo $status == 'completed' ? 'selected' : ''; ?>>Completed</option>
             <option value="cancelled" <?php echo $status == 'cancelled' ? 'selected' : ''; ?>>Cancelled</option>
         </select>
     </div>
-    
+
     <div class="filter-group">
         <span class="filter-label">Date Range:</span>
-        <select name="date_range" class="filter-select" onchange="toggleCustomDates(this.value); this.form.submit()">
-            <option value="all">All Dates</option>
+        <select name="date_range" class="filter-select" onchange="this.form.submit()">
+            <option value="all" <?php echo $dateRange == 'all' ? 'selected' : ''; ?>>All Dates</option>
             <option value="upcoming" <?php echo $dateRange == 'upcoming' ? 'selected' : ''; ?>>Upcoming</option>
             <option value="current" <?php echo $dateRange == 'current' ? 'selected' : ''; ?>>Current Stays</option>
             <option value="past" <?php echo $dateRange == 'past' ? 'selected' : ''; ?>>Past</option>
             <option value="custom" <?php echo $dateRange == 'custom' ? 'selected' : ''; ?>>Custom Range</option>
         </select>
     </div>
-    
-    <div id="customDates" style="display: <?php echo $dateRange == 'custom' ? 'flex' : 'none'; ?>; gap: 10px;">
-        <input type="date" name="from_date" class="filter-input" value="<?php echo $fromDate; ?>" placeholder="From">
-        <input type="date" name="to_date" class="filter-input" value="<?php echo $toDate; ?>" placeholder="To">
-        <button type="submit" class="btn-primary btn-sm">Apply</button>
-    </div>
-    
+
+    <?php if ($dateRange == 'custom'): ?>
+        <div class="filter-group">
+            <input type="date" name="from_date" class="filter-input" value="<?php echo htmlspecialchars($fromDate); ?>" style="min-width: auto;">
+            <span>to</span>
+            <input type="date" name="to_date" class="filter-input" value="<?php echo htmlspecialchars($toDate); ?>" style="min-width: auto;">
+            <button type="submit" class="btn-primary btn-sm">Apply</button>
+        </div>
+    <?php endif; ?>
+
     <div class="search-box">
         <i class="bi bi-search"></i>
-        <input type="text" name="search" placeholder="Search by guest or booking ref..." value="<?php echo htmlspecialchars($search); ?>">
+        <input type="text" name="search" placeholder="Search by guest name, email, or booking ref..." value="<?php echo htmlspecialchars($search); ?>">
     </div>
-    
+
     <?php if ($propertyId || $status != 'all' || $dateRange != 'all' || $search): ?>
-    <a href="bookings.php" class="btn-secondary btn-sm">Clear Filters</a>
+        <a href="bookings.php" class="btn-secondary btn-sm">Clear Filters</a>
     <?php endif; ?>
 </form>
 
 <!-- Mini Calendar -->
 <?php if (!empty($calendarData)): ?>
-<div class="calendar-mini">
-    <div class="calendar-header">
-        <h3 class="calendar-title">📅 Next 30 Days - Check-ins</h3>
-        <a href="calendar.php" class="btn-outline btn-sm">Full Calendar →</a>
-    </div>
-    <div class="calendar-grid" id="miniCalendar">
-        <?php
-        $today = new DateTime();
-        for ($i = 0; $i < 30; $i++):
-            $date = clone $today;
-            $date->modify("+$i days");
-            $dateStr = $date->format('Y-m-d');
-            $dayName = $date->format('D');
-            $dayNum = $date->format('j');
-            $hasCheckins = isset($calendar[$dateStr]);
-        ?>
-        <div class="calendar-day <?php echo $hasCheckins ? 'has-checkins' : ''; ?>" 
-             data-count="<?php echo $hasCheckins ? $calendar[$dateStr]['checkins'] : ''; ?>"
-             title="<?php echo $hasCheckins ? $calendar[$dateStr]['checkins'] . ' check-ins, ' . $calendar[$dateStr]['guests'] . ' guests' : ''; ?>">
-            <div style="font-size: 0.625rem; color: var(--booking-text-light);"><?php echo $dayName; ?></div>
-            <div style="font-weight: 600;"><?php echo $dayNum; ?></div>
+    <div class="calendar-mini">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+            <h3 class="calendar-title">📅 Next 30 Days - Check-ins</h3>
+            <a href="calendar.php" class="btn-outline btn-sm">Full Calendar →</a>
         </div>
-        <?php endfor; ?>
+        <div class="calendar-grid">
+            <?php
+            $today = new DateTime();
+            for ($i = 0; $i < 30; $i++):
+                $date = clone $today;
+                $date->modify("+$i days");
+                $dateStr = $date->format('Y-m-d');
+                $dayName = $date->format('D');
+                $dayNum = $date->format('j');
+                $hasCheckins = isset($calendar[$dateStr]);
+                $count = $hasCheckins ? $calendar[$dateStr]['checkins'] : 0;
+            ?>
+                <div class="calendar-day <?php echo $hasCheckins ? 'has-checkins' : ''; ?>"
+                    title="<?php echo $hasCheckins ? $count . ' check-ins, ' . $calendar[$dateStr]['guests'] . ' guests' : ''; ?>">
+                    <div style="font-size: 0.625rem; color: #999;"><?php echo $dayName; ?></div>
+                    <div style="font-weight: 600;"><?php echo $dayNum; ?></div>
+                    <?php if ($hasCheckins): ?>
+                        <div style="font-size: 0.625rem; color: #003b95;"><?php echo $count; ?> check-in<?php echo $count > 1 ? 's' : ''; ?></div>
+                    <?php endif; ?>
+                </div>
+            <?php endfor; ?>
+        </div>
     </div>
-</div>
-<?php endif; ?>
-
-<!-- Message Display -->
-<?php if (isset($success)): ?>
-<div class="alert alert-success">
-    <i class="bi bi-check-circle-fill"></i>
-    <?php echo $success; ?>
-    <button onclick="this.parentElement.remove()" style="margin-left: auto; background: none; border: none; color: inherit;"><i class="bi bi-x-lg"></i></button>
-</div>
 <?php endif; ?>
 
 <!-- Bookings Table -->
@@ -1086,7 +960,8 @@ $statusLabels = [
                 <th>Booking Ref</th>
                 <th>Guest</th>
                 <th>Property / Room</th>
-                <th>Check-in / Check-out</th>
+                <th>Check-in</th>
+                <th>Check-out</th>
                 <th>Nights</th>
                 <th>Guests</th>
                 <th>Status</th>
@@ -1096,420 +971,186 @@ $statusLabels = [
         </thead>
         <tbody>
             <?php if (empty($bookings)): ?>
-            <tr>
-                <td colspan="9" style="text-align: center; padding: 40px; color: var(--booking-text-light);">
-                    <i class="bi bi-inbox" style="font-size: 2rem; display: block; margin-bottom: 12px;"></i>
-                    No bookings found
-                </td>
-            </tr>
-            <?php else: ?>
-                <?php foreach ($bookings as $booking): 
-                    $statusInfo = $statusLabels[$booking['status']];
-                    $rowClass = '';
-                    if ($booking['alert'] == 'check-in-today') $rowClass = 'alert-checkin';
-                    if ($booking['alert'] == 'check-out-today') $rowClass = 'alert-checkout';
-                ?>
-                <tr class="<?php echo $rowClass; ?>">
-                    <td>
-                        <span class="booking-ref">#<?php echo $booking['booking_reference']; ?></span>
-                    </td>
-                    <td>
-                        <div class="guest-info">
-                            <div class="guest-avatar">
-                                <?php echo strtoupper(substr($booking['guest_first_name'] ?? 'G', 0, 1)); ?>
-                            </div>
-                            <div class="guest-details">
-                                <span class="guest-name">
-                                    <?php echo sanitize($booking['guest_first_name'] . ' ' . substr($booking['guest_last_name'] ?? '', 0, 1) . '.'); ?>
-                                </span>
-                                <span class="guest-email"><?php echo sanitize($booking['guest_email'] ?? 'No email'); ?></span>
-                            </div>
-                        </div>
-                    </td>
-                    <td>
-                        <div class="property-info">
-                            <span class="property-name"><?php echo sanitize($booking['stay_name']); ?></span>
-                            <span class="room-name"><?php echo sanitize($booking['room_name']); ?></span>
-                        </div>
-                    </td>
-                    <td>
-                        <div class="date-cell">
-                            <span class="date-main">
-                                <?php echo date('M d, Y', strtotime($booking['check_in_date'])); ?>
-                            </span>
-                            <span class="date-range">
-                                to <?php echo date('M d, Y', strtotime($booking['check_out_date'])); ?>
-                            </span>
-                        </div>
-                    </td>
-                    <td><?php echo $booking['nights']; ?></td>
-                    <td><?php echo $booking['num_guests']; ?></td>
-                    <td>
-                        <span class="status-badge <?php echo $statusInfo[1]; ?>">
-                            <?php echo $statusInfo[0]; ?>
-                        </span>
-                        <?php if ($booking['days_until_checkin'] == 1 && $booking['status'] == 'confirmed'): ?>
-                        <div style="font-size: 0.625rem; color: var(--booking-warning); margin-top: 4px;">
-                            Tomorrow!
-                        </div>
-                        <?php endif; ?>
-                    </td>
-                    <td class="amount-cell"><?php echo formatPrice($booking['total_amount']); ?></td>
-                    <td>
-                        <div class="action-cell">
-                            <button class="action-btn" onclick="viewBooking(<?php echo $booking['booking_id']; ?>)">
-                                <i class="bi bi-eye"></i> View
-                            </button>
-                            
-                            <?php if ($booking['status'] == 'pending'): ?>
-                            <button class="action-btn success" onclick="updateStatus(<?php echo $booking['booking_id']; ?>, 'confirm')">
-                                <i class="bi bi-check-lg"></i> Confirm
-                            </button>
+                <tr>
+                    <td colspan="10" style="text-align: center; padding: 60px 20px;">
+                        <i class="bi bi-inbox" style="font-size: 3rem; color: #ccc; display: block; margin-bottom: 16px;"></i>
+                        <h4 style="margin: 0 0 8px 0; color: #666;">No bookings found</h4>
+                        <p style="margin: 0; color: #999; font-size: 0.875rem;">
+                            <?php if ($status != 'all' || $dateRange != 'all' || $search): ?>
+                                Try adjusting your filters or <a href="bookings.php" style="color: #003b95;">clear all filters</a>
+                            <?php else: ?>
+                                Bookings will appear here when guests make reservations
                             <?php endif; ?>
-                            
-                            <?php if ($booking['status'] == 'confirmed'): ?>
-                                <?php if ($booking['check_in_date'] == date('Y-m-d')): ?>
-                                <button class="action-btn success" onclick="checkIn(<?php echo $booking['booking_id']; ?>)">
-                                    <i class="bi bi-door-open"></i> Check-in
-                                </button>
-                                <?php endif; ?>
-                            <?php endif; ?>
-                            
-                            <?php if ($booking['status'] == 'checked_in'): ?>
-                                <?php if ($booking['check_out_date'] == date('Y-m-d')): ?>
-                                <button class="action-btn warning" onclick="checkOut(<?php echo $booking['booking_id']; ?>)">
-                                    <i class="bi bi-door-closed"></i> Check-out
-                                </button>
-                                <?php endif; ?>
-                            <?php endif; ?>
-                            
-                            <?php if ($booking['status'] != 'cancelled' && $booking['status'] != 'completed'): ?>
-                            <button class="action-btn danger" onclick="showCancelModal(<?php echo $booking['booking_id']; ?>)">
-                                <i class="bi bi-x-lg"></i> Cancel
-                            </button>
-                            <?php endif; ?>
-                            
-                            <button class="action-btn" onclick="messageGuest(<?php echo $booking['booking_id']; ?>)">
-                                <i class="bi bi-chat"></i>
-                            </button>
-                        </div>
+                        </p>
                     </td>
                 </tr>
+            <?php else: ?>
+                <?php foreach ($bookings as $booking):
+                    $statusInfo = isset($statusLabels[$booking['status']]) ? $statusLabels[$booking['status']] : ['Unknown', 'dark'];
+                ?>
+                    <tr>
+                        <td>
+                            <span class="booking-ref">#<?php echo htmlspecialchars($booking['booking_reference']); ?></span>
+                        </td>
+                        <td>
+                            <div class="guest-info">
+                                <div class="guest-avatar">
+                                    <?php echo strtoupper(substr($booking['guest_first_name'] ?? 'G', 0, 1)); ?>
+                                </div>
+                                <div>
+                                    <div class="guest-name">
+                                        <?php echo htmlspecialchars(($booking['guest_first_name'] ?? 'Guest') . ' ' . ($booking['guest_last_name'] ?? '')); ?>
+                                    </div>
+                                    <div class="guest-email"><?php echo htmlspecialchars($booking['guest_email'] ?? 'No email'); ?></div>
+                                </div>
+                            </div>
+                        </td>
+                        <td>
+                            <div class="property-name"><?php echo htmlspecialchars($booking['stay_name']); ?></div>
+                            <div class="room-name"><?php echo htmlspecialchars($booking['room_name']); ?></div>
+                        </td>
+                        <td>
+                            <div class="date-main"><?php echo date('M d, Y', strtotime($booking['check_in_date'])); ?></div>
+                            <?php if ($booking['days_until_checkin'] !== null && $booking['days_until_checkin'] >= 0): ?>
+                                <div class="date-range">
+                                    <?php
+                                    if ($booking['days_until_checkin'] == 0) echo '<span style="color: #008009;">Today</span>';
+                                    elseif ($booking['days_until_checkin'] == 1) echo '<span style="color: #003b95;">Tomorrow</span>';
+                                    else echo 'In ' . $booking['days_until_checkin'] . ' days';
+                                    ?>
+                                </div>
+                            <?php endif; ?>
+                        </td>
+                        <td>
+                            <div class="date-main"><?php echo date('M d, Y', strtotime($booking['check_out_date'])); ?></div>
+                        </td>
+                        <td><?php echo $booking['nights']; ?></td>
+                        <td><?php echo $booking['num_guests']; ?></td>
+                        <td>
+                            <span class="status-badge <?php echo $statusInfo[1]; ?>">
+                                <?php echo $statusInfo[0]; ?>
+                            </span>
+                        </td>
+                        <td class="amount-cell"><?php echo number_format($booking['total_amount']); ?> RWF</td>
+                        <td>
+                            <div class="action-cell">
+                                <?php if ($booking['status'] == 'pending'): ?>
+                                    <button class="action-btn" onclick="confirmBooking(<?php echo $booking['booking_id']; ?>)" title="Confirm Booking">
+                                        <i class="bi bi-check-lg"></i> Confirm
+                                    </button>
+                                <?php endif; ?>
+
+                                <?php if ($booking['status'] == 'confirmed'): ?>
+                                    <button class="action-btn" onclick="checkInGuest(<?php echo $booking['booking_id']; ?>)" title="Check-in Guest">
+                                        <i class="bi bi-door-open"></i> Check-in
+                                    </button>
+                                    <button class="action-btn" onclick="checkOutGuest(<?php echo $booking['booking_id']; ?>)" title="Check-out Guest">
+                                        <i class="bi bi-door-closed"></i> Check-out
+                                    </button>
+                                <?php endif; ?>
+
+                                <?php if ($booking['status'] != 'cancelled' && $booking['status'] != 'completed'): ?>
+                                    <button class="action-btn danger-btn" onclick="cancelBooking(<?php echo $booking['booking_id']; ?>)" title="Cancel Booking">
+                                        <i class="bi bi-x-lg"></i> Cancel
+                                    </button>
+                                <?php endif; ?>
+                            </div>
+                        </td>
+                    </tr>
                 <?php endforeach; ?>
             <?php endif; ?>
         </tbody>
     </table>
 </div>
 
-<!-- Pagination (if needed) -->
-<?php if (count($bookings) > 50): ?>
-<div class="pagination">
-    <a href="#" class="page-link"><i class="bi bi-chevron-left"></i></a>
-    <a href="#" class="page-link active">1</a>
-    <a href="#" class="page-link">2</a>
-    <a href="#" class="page-link">3</a>
-    <a href="#" class="page-link">4</a>
-    <a href="#" class="page-link">5</a>
-    <a href="#" class="page-link"><i class="bi bi-chevron-right"></i></a>
-</div>
-<?php endif; ?>
-
-<!-- ============================================ -->
-<!-- MODALS -->
-<!-- ============================================ -->
-
-<!-- View Booking Modal -->
-<div class="modal" id="viewModal">
-    <div class="modal-content">
-        <div class="modal-header">
-            <h3>Booking Details</h3>
-            <button class="modal-close" onclick="closeModal('viewModal')"><i class="bi bi-x-lg"></i></button>
-        </div>
-        <div class="modal-body" id="viewModalBody">
-            <!-- Content loaded via AJAX -->
-            <div style="text-align: center; padding: 40px;">
-                <div class="spinner-border text-primary" role="status">
-                    <span class="visually-hidden">Loading...</span>
-                </div>
-            </div>
-        </div>
-        <div class="modal-footer">
-            <button type="button" class="btn-secondary" onclick="closeModal('viewModal')">Close</button>
-        </div>
-    </div>
-</div>
-
-<!-- Update Status Modal -->
-<div class="modal" id="statusModal">
-    <div class="modal-content" style="max-width: 400px;">
-        <div class="modal-header">
-            <h3 id="statusModalTitle">Update Booking Status</h3>
-            <button class="modal-close" onclick="closeModal('statusModal')"><i class="bi bi-x-lg"></i></button>
-        </div>
-        <form method="POST">
-            <div class="modal-body">
-                <input type="hidden" name="booking_id" id="status_booking_id" value="0">
-                <input type="hidden" name="status" id="status_value" value="">
-                
-                <div id="statusMessage" style="margin-bottom: 20px;">
-                    Are you sure you want to <strong id="statusAction"></strong> this booking?
-                </div>
-                
-                <div id="cancellationReason" style="display: none;">
-                    <label class="form-label">Reason for cancellation</label>
-                    <select name="cancellation_reason" class="form-control">
-                        <option value="guest_request">Guest requested</option>
-                        <option value="payment_failed">Payment failed</option>
-                        <option value="overbooking">Overbooking</option>
-                        <option value="property_issue">Property issue</option>
-                        <option value="other">Other</option>
-                    </select>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn-secondary" onclick="closeModal('statusModal')">Cancel</button>
-                <button type="submit" name="update_status" class="btn-primary" id="statusConfirmBtn">Confirm</button>
-            </div>
-        </form>
-    </div>
-</div>
-
-<!-- Message Guest Modal -->
-<div class="modal" id="messageModal">
-    <div class="modal-content">
-        <div class="modal-header">
-            <h3>Message Guest</h3>
-            <button class="modal-close" onclick="closeModal('messageModal')"><i class="bi bi-x-lg"></i></button>
-        </div>
-        <form method="POST">
-            <div class="modal-body">
-                <input type="hidden" name="booking_id" id="message_booking_id" value="0">
-                
-                <div class="form-group">
-                    <label class="form-label">Subject</label>
-                    <input type="text" name="subject" class="form-control" value="Question about your booking" required>
-                </div>
-                
-                <div class="form-group">
-                    <label class="form-label">Message</label>
-                    <textarea name="message" class="form-control" rows="5" required 
-                              placeholder="Write your message to the guest..."></textarea>
-                </div>
-                
-                <div style="background: var(--booking-gray); padding: 12px; border-radius: var(--radius-sm);">
-                    <i class="bi bi-info-circle"></i>
-                    <small>The guest will receive this message via email and in their account.</small>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn-secondary" onclick="closeModal('messageModal')">Cancel</button>
-                <button type="submit" name="send_message" class="btn-primary">Send Message</button>
-            </div>
-        </form>
-    </div>
-</div>
-
 <script>
-// ============================================
-// FILTER FUNCTIONS
-// ============================================
-function filterByStatus(status) {
-    window.location.href = 'bookings.php?status=' + status;
-}
-
-function filterByDate(range) {
-    window.location.href = 'bookings.php?date_range=' + range;
-}
-
-function toggleCustomDates(selected) {
-    const customDates = document.getElementById('customDates');
-    if (customDates) {
-        customDates.style.display = selected === 'custom' ? 'flex' : 'none';
+    // Filter functions
+    function filterByStatus(status) {
+        window.location.href = 'bookings.php?status=' + status;
     }
-}
 
-// ============================================
-// MODAL FUNCTIONS
-// ============================================
-function openModal(modalId) {
-    document.getElementById(modalId).classList.add('active');
-    document.body.style.overflow = 'hidden';
-}
-
-function closeModal(modalId) {
-    document.getElementById(modalId).classList.remove('active');
-    document.body.style.overflow = 'auto';
-}
-
-// Close modal when clicking outside
-window.onclick = function(event) {
-    if (event.target.classList.contains('modal')) {
-        event.target.classList.remove('active');
-        document.body.style.overflow = 'auto';
+    function filterByDate(range) {
+        window.location.href = 'bookings.php?date_range=' + range;
     }
-}
 
-// ============================================
-// VIEW BOOKING DETAILS
-// ============================================
-function viewBooking(bookingId) {
-    openModal('viewModal');
-    
-    // Simulate loading (in production, make AJAX call)
-    setTimeout(() => {
-        document.getElementById('viewModalBody').innerHTML = `
-            <div class="booking-detail-section">
-                <h4 class="booking-detail-title">Booking Information</h4>
-                <div class="booking-detail-grid">
-                    <div class="detail-row">
-                        <span class="detail-label">Reference</span>
-                        <span class="detail-value">#GRW-2024-${bookingId}XYZ</span>
-                    </div>
-                    <div class="detail-row">
-                        <span class="detail-label">Status</span>
-                        <span class="detail-value"><span class="status-badge success">Confirmed</span></span>
-                    </div>
-                    <div class="detail-row">
-                        <span class="detail-label">Check-in</span>
-                        <span class="detail-value">March 15, 2024</span>
-                    </div>
-                    <div class="detail-row">
-                        <span class="detail-label">Check-out</span>
-                        <span class="detail-value">March 18, 2024</span>
-                    </div>
-                    <div class="detail-row">
-                        <span class="detail-label">Nights</span>
-                        <span class="detail-value">3 nights</span>
-                    </div>
-                    <div class="detail-row">
-                        <span class="detail-label">Guests</span>
-                        <span class="detail-value">2 adults</span>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="booking-detail-section">
-                <h4 class="booking-detail-title">Guest Information</h4>
-                <div class="booking-detail-grid">
-                    <div class="detail-row">
-                        <span class="detail-label">Name</span>
-                        <span class="detail-value">John Doe</span>
-                    </div>
-                    <div class="detail-row">
-                        <span class="detail-label">Email</span>
-                        <span class="detail-value">john@example.com</span>
-                    </div>
-                    <div class="detail-row">
-                        <span class="detail-label">Phone</span>
-                        <span class="detail-value">+250 788 123 456</span>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="booking-detail-section">
-                <h4 class="booking-detail-title">Payment Summary</h4>
-                <div class="booking-detail-grid">
-                    <div class="detail-row">
-                        <span class="detail-label">Room Rate</span>
-                        <span class="detail-value">RWF 120,000 × 3 nights</span>
-                    </div>
-                    <div class="detail-row">
-                        <span class="detail-label">Subtotal</span>
-                        <span class="detail-value">RWF 360,000</span>
-                    </div>
-                    <div class="detail-row">
-                        <span class="detail-label">Service Fee</span>
-                        <span class="detail-value">RWF 36,000</span>
-                    </div>
-                    <div class="detail-row">
-                        <span class="detail-label">Tax</span>
-                        <span class="detail-value">RWF 64,800</span>
-                    </div>
-                    <div class="detail-row">
-                        <span class="detail-label">Total</span>
-                        <span class="detail-value" style="color: var(--booking-success);">RWF 460,800</span>
-                    </div>
-                </div>
-            </div>
-        `;
-    }, 500);
-}
-
-// ============================================
-// STATUS UPDATE FUNCTIONS
-// ============================================
-function updateStatus(bookingId, action) {
-    document.getElementById('status_booking_id').value = bookingId;
-    
-    if (action === 'confirm') {
-        document.getElementById('statusModalTitle').textContent = 'Confirm Booking';
-        document.getElementById('statusAction').textContent = 'confirm';
-        document.getElementById('status_value').value = 'confirmed';
-        document.getElementById('statusConfirmBtn').className = 'btn-primary';
-        document.getElementById('cancellationReason').style.display = 'none';
-    } else if (action === 'cancel') {
-        document.getElementById('statusModalTitle').textContent = 'Cancel Booking';
-        document.getElementById('statusAction').textContent = 'cancel';
-        document.getElementById('status_value').value = 'cancelled';
-        document.getElementById('statusConfirmBtn').className = 'btn-danger';
-        document.getElementById('cancellationReason').style.display = 'block';
+    // Booking action functions
+    function confirmBooking(bookingId) {
+        if (confirm('Are you sure you want to confirm this booking?')) {
+            submitAction(bookingId, 'confirmed');
+        }
     }
-    
-    openModal('statusModal');
-}
 
-function showCancelModal(bookingId) {
-    updateStatus(bookingId, 'cancel');
-}
+    function cancelBooking(bookingId) {
+        var reason = prompt('Please enter a reason for cancellation:');
+        if (reason !== null) {
+            submitAction(bookingId, 'cancelled', reason);
+        }
+    }
 
-function checkIn(bookingId) {
-    if (confirm('Check in this guest?')) {
-        const form = document.createElement('form');
+    function checkInGuest(bookingId) {
+        if (confirm('Check in this guest? This will mark the booking as completed.')) {
+            var form = document.createElement('form');
+            form.method = 'POST';
+            form.innerHTML = '<input type="hidden" name="booking_id" value="' + bookingId + '"><input type="hidden" name="check_in" value="1">';
+            document.body.appendChild(form);
+            form.submit();
+        }
+    }
+
+    function checkOutGuest(bookingId) {
+        if (confirm('Check out this guest? This will mark the booking as completed.')) {
+            var form = document.createElement('form');
+            form.method = 'POST';
+            form.innerHTML = '<input type="hidden" name="booking_id" value="' + bookingId + '"><input type="hidden" name="check_out" value="1">';
+            document.body.appendChild(form);
+            form.submit();
+        }
+    }
+
+    function submitAction(bookingId, status, reason) {
+        var form = document.createElement('form');
         form.method = 'POST';
-        form.innerHTML = `<input type="hidden" name="booking_id" value="${bookingId}"><input type="hidden" name="check_in" value="1">`;
+        var html = '<input type="hidden" name="booking_id" value="' + bookingId + '">';
+        html += '<input type="hidden" name="status" value="' + status + '">';
+        if (reason) {
+            html += '<input type="hidden" name="cancellation_reason" value="' + reason + '">';
+        }
+        html += '<input type="hidden" name="update_status" value="1">';
+        form.innerHTML = html;
         document.body.appendChild(form);
         form.submit();
     }
-}
 
-function checkOut(bookingId) {
-    if (confirm('Check out this guest?')) {
-        const form = document.createElement('form');
-        form.method = 'POST';
-        form.innerHTML = `<input type="hidden" name="booking_id" value="${bookingId}"><input type="hidden" name="check_out" value="1">`;
-        document.body.appendChild(form);
-        form.submit();
+    // Export function
+    function exportBookings() {
+        var csv = "Booking Ref,Guest Name,Email,Property,Room,Check-in,Check-out,Nights,Guests,Status,Amount\n";
+
+        <?php foreach ($bookings as $booking): ?>
+            csv += "#<?php echo addslashes($booking['booking_reference']); ?>," +
+                "\"<?php echo addslashes($booking['guest_first_name'] . ' ' . $booking['guest_last_name']); ?>\"," +
+                "\"<?php echo addslashes($booking['guest_email']); ?>\"," +
+                "\"<?php echo addslashes($booking['stay_name']); ?>\"," +
+                "\"<?php echo addslashes($booking['room_name']); ?>\"," +
+                "<?php echo $booking['check_in_date']; ?>," +
+                "<?php echo $booking['check_out_date']; ?>," +
+                "<?php echo $booking['nights']; ?>," +
+                "<?php echo $booking['num_guests']; ?>," +
+                "<?php echo $booking['status']; ?>," +
+                "<?php echo $booking['total_amount']; ?>\n";
+        <?php endforeach; ?>
+
+        var blob = new Blob([csv], {
+            type: 'text/csv'
+        });
+        var url = window.URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = 'bookings_export_<?php echo date('Y-m-d'); ?>.csv';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
     }
-}
-
-// ============================================
-// MESSAGE FUNCTIONS
-// ============================================
-function messageGuest(bookingId) {
-    document.getElementById('message_booking_id').value = bookingId;
-    openModal('messageModal');
-}
-
-// ============================================
-// EXPORT FUNCTION
-// ============================================
-function exportBookings() {
-    // Create CSV content
-    let csv = "Reference,Guest Name,Email,Property,Room,Check-in,Check-out,Nights,Guests,Status,Amount\n";
-    
-    <?php foreach ($bookings as $booking): ?>
-    csv += "#<?php echo $booking['booking_reference']; ?>,<?php echo $booking['guest_first_name'] . ' ' . $booking['guest_last_name']; ?>,<?php echo $booking['guest_email']; ?>,<?php echo $booking['stay_name']; ?>,<?php echo $booking['room_name']; ?>,<?php echo $booking['check_in_date']; ?>,<?php echo $booking['check_out_date']; ?>,<?php echo $booking['nights']; ?>,<?php echo $booking['num_guests']; ?>,<?php echo $booking['status']; ?>,<?php echo $booking['total_amount']; ?>\n";
-    <?php endforeach; ?>
-    
-    // Download CSV
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'bookings_export.csv';
-    a.click();
-    window.URL.revokeObjectURL(url);
-}
 </script>
 
 <?php require_once 'includes/stays_footer.php'; ?>

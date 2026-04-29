@@ -1006,9 +1006,14 @@ require_once 'includes/header.php';
         }
     }
 
-    function writeReview(bookingRef) {
-        alert('Write a review for booking ' + bookingRef);
+function writeReview(bookingRef) {
+    const booking = bookingsData.find(b => b.booking_reference === bookingRef);
+    if (booking && booking.booking_id) {
+        window.location.href = `/gorwanda-plus/review-form.php?booking_id=${booking.booking_id}`;
+    } else {
+        alert('Unable to load review form. Please try again.');
     }
+}
 
     // Close modal on outside click
     document.getElementById('detailsModal').addEventListener('click', function(e) {

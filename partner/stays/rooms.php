@@ -764,7 +764,7 @@ $roomAmenitiesList = [
 
 <div class="rooms-header">
     <div class="rooms-title">
-        <h1>Room Management</h1>
+
         <p>Manage rooms, prices, and availability across your properties</p>
     </div>
     <button class="btn-primary" onclick="openAddRoomModal()" <?php echo $propertyId > 0 ? '' : 'disabled'; ?>>
